@@ -1338,11 +1338,22 @@
 
         @media (max-width: 768px) {
             .app-container { flex-direction: column; }
-            .sidebar { width: 100%; height: 46%; border-right: none; border-bottom: 1px solid var(--border-color); }
-            .main-view { height: 54%; }
-            .projection-container { height: 42%; }
-            .projection-header { padding: 8px 10px; gap: 6px; }
-            .proj-btn { padding: 6px 8px !important; font-size: 12px !important; }
+            .sidebar { width: 100%; height: 42%; border-right: none; border-bottom: 1px solid var(--border-color); }
+            .main-view { height: 58%; min-height: 0; }
+            /* 手机上把投影区留得更高一些, 否则投影图只剩几十像素高, 看不清 */
+            .projection-container { height: 46%; min-height: 150px; }
+            .canvas-container { min-height: 0; }
+            /* 投影视角工具条压成"一行可横向滑动": 高度从 113px 降到约 40px, 高度全留给投影图 */
+            .projection-header {
+                padding: 6px 8px; gap: 6px;
+                flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden;
+                -webkit-overflow-scrolling: touch;
+            }
+            .projection-header .proj-head-label { display: none; }
+            .projection-header .proj-view-code { display: none; }
+            .projection-header .chk-inline { margin-left: 0 !important; white-space: nowrap; font-size: 11px; }
+            .projection-header .fdiag-select { max-width: 118px; font-size: 11px; padding: 4px 4px; }
+            .proj-btn { padding: 6px 8px !important; font-size: 11px !important; }
             .canvas-container canvas { touch-action: none; }
             /* 移动端加大原子选择行的点击区域 */
             .pick-item { padding: 12px 10px; }
@@ -1475,6 +1486,14 @@
                         <span class="slider"></span>
                     </label>
                 </div>
+
+                <div class="toggle-row" style="margin-top: 8px; border-bottom:none; margin-bottom:0;">
+                    <span class="toggle-label">投影图 - 显示晶胞外原子</span>
+                    <label class="switch">
+                        <input type="checkbox" id="toggleProjOutside" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-top:8px;">
                     <div>
                         <label style="font-size:11px; opacity:0.75;">投影面颜色</label>
@@ -1588,7 +1607,7 @@
         <div class="canvas-container" id="canvas3d"></div>
         <div class="projection-container">
             <div class="projection-header">
-                <span style="font-size: 12px; font-weight: bold;">投影视角:</span>
+                <span class="proj-head-label" style="font-size: 12px; font-weight: bold;">投影视角:</span>
                 <button class="btn btn-secondary btn-small proj-btn active" data-view="top" title="沿 z 轴看, 看到 x-y 面">沿 z 轴看</button>
                 <button class="btn btn-secondary btn-small proj-btn" data-view="front" title="沿 x 轴看, 看到 y-z 面">沿 x 轴看</button>
                 <button class="btn btn-secondary btn-small proj-btn" data-view="side" title="沿 y 轴看, 看到 x-z 面">沿 y 轴看</button>
@@ -1603,12 +1622,6 @@
                     <option value="0,1,-1">(01-1) 另一条 y-z 面对角线</option>
                 </select>
                 <span id="projViewCode" class="proj-view-code">view [001]</span>
-                <label class="chk-inline" style="margin-left:auto;">
-                    <input type="checkbox" id="toggleProjectionPlane" checked> 显示投影面
-                </label>
-                <label class="chk-inline">
-                    <input type="checkbox" id="toggleProjOutside" checked> 显示晶胞外原子
-                </label>
             </div>
             <canvas id="projCanvas" style="flex: 1 1 0; min-height: 0; width: 100%; display: block; cursor: crosshair;"></canvas>
         </div>
@@ -1887,11 +1900,6 @@ function setupEventListeners() {
         });
     }
 
-    document.getElementById('toggleProjectionPlane').addEventListener('change', (e) => {
-        state.showProjectionPlane = e.target.checked;
-        updateProjectionPlane();
-    });
-
     onTap(document.getElementById('projCanvas'), handleProjectionClick);
 
     window.addEventListener('resize', () => {
@@ -1918,7 +1926,9 @@ function setupEventListeners() {
     // 3D 投影面: 显示开关 / 颜色 / 透明度
     document.getElementById('togglePlane').addEventListener('change', (e) => {
         state.plane.show = e.target.checked;
+        state.showProjectionPlane = e.target.checked;
         if(projPlaneGroup) projPlaneGroup.visible = e.target.checked;
+        updateProjectionPlane();
     });
     document.getElementById('planeColor').addEventListener('input', (e) => {
         state.plane.color = e.target.value;
@@ -3541,18 +3551,22 @@ function clearProjectionPlane() {
 // 根据当前投影视角重建投影面: 半透明条纹平面 + 边框 + 四角外框线
 function updateProjectionPlane() {
     clearProjectionPlane();
-    if(!state.showProjectionPlane || !state.lastGeo) return;
+    if(!state.showProjectionPlane || !state.plane.show || !state.lastGeo) return;
     const activeBtn = document.querySelector('.proj-btn.active');
     const viewType = activeBtn ? activeBtn.dataset.view : 'top';
     if(viewType === 'diag') return;   // 体对角线视角不渲染投影面
     const fr = getProjectionFrame(viewType);
-    const matColor = cssColor(getComputedStyle(document.documentElement).getPropertyValue('--primary-color'), '#4a7fd4');
+    // 颜色 / 透明度优先用左栏设置 (state.plane), 没设置过才退回主题主色
+    const matColor = (state.plane && state.plane.color && state.plane.color.trim())
+        ? state.plane.color.trim()
+        : cssColor(getComputedStyle(document.documentElement).getPropertyValue('--primary-color'), '#4a7fd4');
+    const planeAlpha = (state.plane && typeof state.plane.alpha === 'number') ? state.plane.alpha : 0.32;
     const tex = makeStripeTexture(matColor);
 
     const group = new THREE.Group();
     const planeGeo = new THREE.PlaneGeometry(fr.width, fr.height);
     const planeMat = new THREE.MeshBasicMaterial({
-        map: tex, transparent: true, opacity: 0.55, side: THREE.DoubleSide,
+        map: tex, transparent: true, opacity: Math.min(1, 0.20 + planeAlpha), side: THREE.DoubleSide,
         depthWrite: false, alphaTest: 0.01, color: 0xffffff
     });
     const plane = new THREE.Mesh(planeGeo, planeMat);
