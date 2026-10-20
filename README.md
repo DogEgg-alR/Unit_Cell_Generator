@@ -308,6 +308,11 @@ Chrome / Edge / Firefox / Safari 近三年版本；需要 WebGL 与 Canvas 2D。
 
 ## 更新记录
 
+### v1.6
+- **手机 / 平板可用了**：3D 视图与投影图改为指针事件（pointerdown / pointerup）判定，单击点原子时弹窗，拖动旋转或双指缩放不会误触；命中判定支持手指（桌面端同时靠 `touchstart` 之外的原生 pointer 事件，鼠标行为不变）。
+- 手机上点空处会就近选中最近的原子（阈值按屏幕尺寸自适应），不用精确点中球心。
+- 窄屏样式：左栏改为上方整宽、右栏占剩余空间，投影视角按钮自动换行不挤压。
+
 ### v1.5
 - three.js r128 与 OrbitControls **直接内嵌**进 `index.html`，彻底去掉外部依赖：离线双击可用、GitHub Pages 不再受 cdnjs / jsdelivr 影响。
 - 页面只有单个文件（约 730 KB），部署时只需上传 `index.html`。

@@ -1273,6 +1273,7 @@
             color: var(--text-color);
             animation: modalFadeIn 0.3s ease;
             border: 1px solid var(--border-color);
+            max-height: 90vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
         }
         @keyframes modalFadeIn { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
         
@@ -1337,10 +1338,26 @@
 
         @media (max-width: 768px) {
             .app-container { flex-direction: column; }
-            .sidebar { width: 100%; height: 50%; border-right: none; border-bottom: 1px solid var(--border-color); }
-            .main-view { height: 50%; }
-            .projection-container { height: 40%; }
+            .sidebar { width: 100%; height: 46%; border-right: none; border-bottom: 1px solid var(--border-color); }
+            .main-view { height: 54%; }
+            .projection-container { height: 42%; }
+            .projection-header { padding: 8px 10px; gap: 6px; }
+            .proj-btn { padding: 6px 8px !important; font-size: 12px !important; }
+            .canvas-container canvas { touch-action: none; }
+            /* 移动端加大原子选择行的点击区域 */
+            .pick-item { padding: 12px 10px; }
+            .pick-item .pick-coord { font-size: 12px; }
+            .modal { padding: 18px; }
         }
+
+        /* 移动端: 画布上不要出现文字选择 / 长按菜单, 否则会吞掉轻点 */
+        #canvas3d canvas, #projCanvas {
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #projCanvas { touch-action: manipulation; }
         
         .theme-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
         .preset-btn { 
@@ -1875,7 +1892,7 @@ function setupEventListeners() {
         updateProjectionPlane();
     });
 
-    document.getElementById('projCanvas').addEventListener('click', handleProjectionClick);
+    onTap(document.getElementById('projCanvas'), handleProjectionClick);
 
     window.addEventListener('resize', () => {
         onWindowResize();
@@ -2506,6 +2523,29 @@ let cellEdges = [];
 let axesHelper;
 let axesGroup = null;
 let projPlaneGroup = null;   // 3D 中的投影面 (条纹透明材质, 随视角 / 晶胞转动)
+// 射线拾取用的临时对象 (3D 画布 hover / 点击共用)
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+// 统一的"轻点"监听。移动端 OrbitControls 会在 pointerdown 时 setPointerCapture,
+// 很多浏览器因此不再补发 click 事件 —— 3D 图和投影图都点不动。
+// 这里直接用 pointerdown → pointerup 自己判定: 位移 < 12px 且 < 700ms 才算"点了一下"。
+function onTap(el, handler) {
+    let down = null;
+    el.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        down = { id: e.pointerId, x: e.clientX, y: e.clientY, t: Date.now() };
+    }, { passive: true });
+    el.addEventListener('pointerup', (e) => {
+        if (!down || e.pointerId !== down.id) { down = null; return; }
+        const dx = e.clientX - down.x, dy = e.clientY - down.y;
+        const dt = Date.now() - down.t;
+        down = null;
+        if (Math.hypot(dx, dy) > 12 || dt > 700) return;   // 拖动旋转 / 双指缩放不算点击
+        handler(e);
+    });
+    el.addEventListener('pointercancel', () => { down = null; }, { passive: true });
+}
 
 function initThreeJS() {
     const container = document.getElementById('canvas3d');
@@ -2535,9 +2575,6 @@ function initThreeJS() {
     backLight.position.set(-5, -5, -5);
     scene.add(backLight);
 
-    const raycaster = new THREE.Raycaster();
-    const mouse = new THREE.Vector2();
-
     // 鼠标悬停: 只更新指针形状 (坐标信息统一在左栏"查看原子坐标"里以模态框给出,
     // 避免画布上出现大小不一的小字浮框)
     renderer.domElement.addEventListener('mousemove', (event) => {
@@ -2552,27 +2589,53 @@ function initThreeJS() {
             : 'default';
     });
 
-    renderer.domElement.addEventListener('click', (event) => {
-        const rect = renderer.domElement.getBoundingClientRect();
-        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-        raycaster.setFromCamera(mouse, camera);
-        const intersects = raycaster.intersectObjects(atomMeshes.filter(m => m.visible));
-        if(intersects.length === 0) return;
-        // 一条视线上可能压着好几个原子 (前面的球挡住后面的), 先去重成"真正的原子"列表
-        const list = uniqueAtoms(intersects.map(h => h.object));
-
-        if(state.interactionMode === 'view') { pickAtomAt(list); return; }
-        if(list.length <= 1) { applyAtomAction(list[0]); return; }
-        // 其它模式 (替换/空穴/设原点) 遇到重叠时也要先让用户选清楚,
-        // 否则点的是"看得见的那个", 改的却是"被挡住的最前面那个"
-        const verb = state.interactionMode === 'vacancy' ? '挖成空穴'
-                   : state.interactionMode === 'setOrigin' ? '设为原点' : '替换';
-        chooseAtomModal(list, `选择要${verb}的原子`, applyAtomAction);
-    });
+    // 点击 / 轻点原子: 鼠标走 click, 触摸 / 触控笔走 onTap (见上)
+    onTap(renderer.domElement, (event) => handleCanvasPick(event.clientX, event.clientY, event.pointerType));
 
     animate();
+}
+
+// 3D 画布上的拾取. 触摸时手指容易点偏: 若射线没打到任何球,
+// 再按"投影到屏幕上的距离"找 24px 内最近的那个球, 保证手机上点得中
+function handleCanvasPick(cx, cy, pointerType) {
+    const el = renderer.domElement;
+    const rect = el.getBoundingClientRect();
+    mouse.x = ((cx - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((cy - rect.top) / rect.height) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, camera);
+    let intersects = raycaster.intersectObjects(atomMeshes.filter(m => m.visible));
+
+    if (intersects.length === 0 && pointerType === 'touch') {
+        // 视口内按像素距离找最近的原子, 阈值跟着球的屏幕半径走
+        let best = null, bestD = Infinity;
+        const halfH = rect.height / 2;
+        const tanHalf = Math.tan((camera.fov * Math.PI) / 360);
+        atomMeshes.filter(m => m.visible).forEach(m => {
+            const p = new THREE.Vector3().copy(m.position).project(camera);
+            const sx = (p.x * 0.5 + 0.5) * rect.width + rect.left;
+            const sy = (-p.y * 0.5 + 0.5) * rect.height + rect.top;
+            const d = Math.hypot(sx - cx, sy - cy);
+            const dist = camera.position.distanceTo(m.position);
+            const pxR = (m.geometry.parameters.radius / (Math.max(dist, 1e-6) * tanHalf)) * halfH;
+            const limit = Math.max(18, pxR * 0.9);
+            if (d < limit && d < bestD) { bestD = d; best = m; }
+        });
+        if (!best) return;
+        intersects = [{ object: best }];
+    }
+    if (intersects.length === 0) return;
+
+    // 一条视线上可能压着好几个原子 (前面的球挡住后面的), 先去重成"真正的原子"列表
+    const list = uniqueAtoms(intersects.map(h => h.object));
+
+    if (state.interactionMode === 'view') { pickAtomAt(list); return; }
+    if (list.length <= 1) { applyAtomAction(list[0]); return; }
+    // 其它模式 (替换/空穴/设原点) 遇到重叠时也要先让用户选清楚,
+    // 否则点的是"看得见的那个", 改的却是"被挡住的最前面那个"
+    const verb = state.interactionMode === 'vacancy' ? '挖成空穴'
+               : state.interactionMode === 'setOrigin' ? '设为原点' : '替换';
+    chooseAtomModal(list, `选择要${verb}的原子`, applyAtomAction);
 }
 
 // 同一条视线上的原子去重 (边界补全会在 0 和 1 处各放一个球, 它们是同一个原子)
