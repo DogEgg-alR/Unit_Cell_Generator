@@ -2541,7 +2541,9 @@ function onTap(el, handler) {
         const dx = e.clientX - down.x, dy = e.clientY - down.y;
         const dt = Date.now() - down.t;
         down = null;
-        if (Math.hypot(dx, dy) > 12 || dt > 700) return;   // 拖动旋转 / 双指缩放不算点击
+        // 手指轻点会有几像素抖动, 触摸/触控笔放宽到 16px; 鼠标保持 8px 免得拖动误触
+        const tol = (e.pointerType && e.pointerType !== 'mouse') ? 16 : 8;
+        if (Math.hypot(dx, dy) > tol || dt > 700) return;   // 拖动旋转 / 双指缩放不算点击
         handler(e);
     });
     el.addEventListener('pointercancel', () => { down = null; }, { passive: true });
@@ -2618,7 +2620,7 @@ function handleCanvasPick(cx, cy, pointerType) {
             const d = Math.hypot(sx - cx, sy - cy);
             const dist = camera.position.distanceTo(m.position);
             const pxR = (m.geometry.parameters.radius / (Math.max(dist, 1e-6) * tanHalf)) * halfH;
-            const limit = Math.max(18, pxR * 0.9);
+            const limit = Math.max(22, pxR * 1.1);
             if (d < limit && d < bestD) { bestD = d; best = m; }
         });
         if (!best) return;
