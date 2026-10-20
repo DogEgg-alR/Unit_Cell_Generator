@@ -1,0 +1,2677 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>晶胞生成器</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        :root {
+            --bg-color: #f5f7fa;
+            --sidebar-bg: #ffffff;
+            --text-color: #303133;
+            --primary-color: #409eff;
+            --selected-bg: #ecf5ff;
+            --hover-bg: #f2f6fc;
+            --input-bg: #f5f7fa;
+            --border-color: #dcdfe6;
+            --shadow: 0 2px 12px 0 rgba(0,0,0,0.1);
+            --cell-line: #cc0000;
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #1a1a1a;
+            --sidebar-bg: #252526;
+            --text-color: #e0e0e0;
+            --primary-color: #409eff;
+            --selected-bg: #3a3a3c;
+            --hover-bg: #333333;
+            --input-bg: #3c3c3c;
+            --border-color: #444444;
+            --shadow: 0 2px 12px 0 rgba(0,0,0,0.5);
+            --cell-line: #ff5a5a;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; outline: none; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            transition: background-color 0.2s, color 0.2s;
+        }
+
+        .app-container { display: flex; width: 100%; height: 100%; }
+
+        .sidebar {
+            width: 380px;
+            background-color: var(--sidebar-bg);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            z-index: 10;
+            box-shadow: var(--shadow);
+            transition: all 0.3s;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .sidebar-title { font-size: 18px; font-weight: bold; }
+
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            scrollbar-width: thin;
+        }
+
+        .main-view {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            background-color: var(--bg-color);
+        }
+
+        .canvas-container { flex: 1; position: relative; overflow: hidden; }
+
+        .projection-container {
+            position: relative;
+            height: 300px;
+            background-color: var(--sidebar-bg);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .projection-header {
+            padding: 10px 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            overflow-x: auto;
+        }
+
+        .form-group { margin-bottom: 20px; }
+        .form-label { display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; }
+        
+        select, input[type="text"], input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background-color: var(--input-bg);
+            color: var(--text-color);
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+        
+        select:focus, input:focus { border-color: var(--primary-color); }
+
+        .btn {
+            padding: 10px 16px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            text-align: center;
+        }
+
+        .btn-primary { background-color: var(--primary-color); color: white; width: 100%; }
+        .btn-primary:hover { opacity: 0.9; }
+        
+        .btn-secondary { background-color: transparent; border: 1px solid var(--border-color); color: var(--text-color); }
+        .btn-secondary:hover { background-color: var(--hover-bg); }
+
+        .btn-small { padding: 4px 8px; font-size: 12px; }
+        .btn-danger { background-color: #f56c6c; color: white; }
+        .btn-danger:hover { background-color: #f78989; }
+
+        .atom-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; min-height: 30px; }
+        .atom-tag {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            background-color: var(--selected-bg);
+            border: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s;
+        }
+        .atom-tag:hover { border-color: var(--primary-color); transform: translateY(-1px); }
+        .atom-tag.active { border-color: var(--primary-color); box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.2); }
+        .color-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+        .delete-atom { margin-left: 5px; color: #999; font-weight: bold; font-size: 14px; line-height: 1; }
+        .delete-atom:hover { color: #f56c6c; }
+
+        .toggle-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px dashed var(--border-color);
+            margin-bottom: 8px;
+        }
+        .toggle-label { font-size: 14px; font-weight: 500; }
+        
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+        }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 24px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider { background-color: var(--primary-color); }
+        input:checked + .slider:before { transform: translateX(20px); }
+
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 1000;
+            display: none; justify-content: center; align-items: center;
+            backdrop-filter: blur(2px);
+        }
+        .modal {
+            background: var(--sidebar-bg); padding: 24px; border-radius: 8px;
+            width: 90%; max-width: 450px; box-shadow: var(--shadow);
+            color: var(--text-color);
+            animation: modalFadeIn 0.3s ease;
+            border: 1px solid var(--border-color);
+        }
+        @keyframes modalFadeIn { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .modal-title { font-size: 16px; font-weight: bold; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .modal-body { font-size: 14px; margin-bottom: 24px; line-height: 1.6; }
+        .modal-footer { display: flex; justify-content: flex-end; gap: 10px; }
+
+        /* 原子坐标/信息浮板: 统一的字号, 3D 与投影共用一个样式, 避免"大小不均" */
+        .info-panel {
+            position: absolute; 
+            background: var(--sidebar-bg); 
+            border: 1px solid var(--border-color);
+            padding: 8px 11px; 
+            border-radius: 8px; 
+            font-size: 13px; 
+            line-height: 1.6;
+            pointer-events: none;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+            z-index: 50; 
+            display: none; 
+            max-width: 340px;
+            white-space: normal;
+            font-family: inherit;
+            color: var(--text-color);
+        }
+        .info-panel .ip-head { font-size: 13px; font-weight: bold; margin-bottom: 4px; color: var(--primary-color); display: flex; align-items: center; gap: 6px; }
+        /* 坐标行不只在浮板里用, 模态框里也用同一套字号: 不加 .info-panel 前缀, 否则模态框内退回 14px 显得大小不均 */
+        .ip-row { font-size: 13px; line-height: 1.7; }
+        .ip-sub { font-size: 12px; opacity: 0.7; line-height: 1.6; }
+        .ip-note { font-size: 13px; opacity: 0.8; margin-bottom: 10px; line-height: 1.6; }
+
+        /* 投影视角标签: 代码放在按钮旁边的小徽章里, 不再由一排数字充当按钮 */
+        .proj-view-code {
+            font-size: 12px; font-family: monospace; opacity: 0.85;
+            background: var(--hover-bg); padding: 3px 8px; border-radius: 4px;
+            white-space: nowrap; border: 1px solid var(--border-color);
+        }
+        .chk-inline { font-size: 12px; display: flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; }
+
+        /* 投影视角按钮: 不换行、不被压扁 (窗口变窄时整行自动换到下一行) */
+        .proj-btn { white-space: nowrap; flex-shrink: 0; }
+
+        /* 对角面选择 (六种对角面) */
+        .fdiag-select {
+            font-size: 12px; padding: 4px 6px; border-radius: 4px; max-width: 190px;
+            border: 1px solid var(--border-color); background: var(--sidebar-bg);
+            color: var(--text-color); cursor: pointer;
+        }
+
+        /* 原子单选 (模态框里的"选择查看哪个原子") */
+        .pick-item {
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px 10px; margin-bottom: 6px; cursor: pointer;
+            border: 1px solid var(--border-color); border-radius: 8px;
+            background: var(--hover-bg); transition: all 0.15s;
+        }
+        .pick-item:hover { border-color: var(--primary-color); background: var(--selected-bg); }
+        .pick-item .pick-dot { width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0; border: 1px solid rgba(0,0,0,0.25); }
+        .pick-item .pick-name { font-weight: bold; font-size: 14px; min-width: 38px; }
+        .pick-item .pick-coord { font-size: 13px; opacity: 0.85; }
+        .pick-item .pick-depth { margin-left: auto; font-size: 12px; color: var(--primary-color); white-space: nowrap; }
+
+        @media (max-width: 768px) {
+            .app-container { flex-direction: column; }
+            .sidebar { width: 100%; height: 50%; border-right: none; border-bottom: 1px solid var(--border-color); }
+            .main-view { height: 50%; }
+            .projection-container { height: 40%; }
+        }
+        
+        .theme-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+        .preset-btn { 
+            height: 40px; border-radius: 6px; border: 2px solid transparent; 
+            cursor: pointer; position: relative; overflow: hidden;
+            transition: transform 0.2s;
+        }
+        .preset-btn:hover { transform: scale(1.05); }
+        .preset-btn.active { border-color: var(--text-color); }
+        .preset-name { 
+            position: absolute; bottom: 0; left: 0; right: 0; 
+            background: rgba(0,0,0,0.6); color: white; 
+            font-size: 10px; text-align: center; padding: 2px;
+        }
+
+        .color-edit-row {
+            display: flex; align-items: center; gap: 10px; 
+            margin-bottom: 12px; padding: 8px; 
+            background: var(--hover-bg); border-radius: 6px;
+        }
+        .color-edit-label { width: 100px; font-size: 13px; font-weight: 500; }
+        .color-edit-input { flex: 1; font-family: monospace; font-size: 12px; }
+        .color-picker { width: 36px; height: 36px; border: none; border-radius: 4px; cursor: pointer; background: none; }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-title">🔬 晶胞生成器</div>
+            <button class="btn btn-secondary btn-small" id="themeSettingsBtn">🎨 主题设置</button>
+        </div>
+        
+        <div class="sidebar-content">
+            <div class="form-group">
+                <label class="form-label">晶胞类型 / 形状</label>
+                <select id="crystalType">
+                    <option value="simple_cubic">简单立方 (Simple Cubic)</option>
+                    <option value="bcc">体心立方 (BCC)</option>
+                    <option value="fcc">面心立方 (FCC)</option>
+                    <option value="nacl">氯化钠 (NaCl)</option>
+                    <option value="cscl">氯化铯 (CsCl)</option>
+                    <option value="diamond">金刚石 (Diamond)</option>
+                    <option value="zinc_blende">闪锌矿 (ZnS)</option>
+                    <option value="fluorite">萤石 (CaF₂)</option>
+                    <option value="rutile">金红石 (TiO₂)</option>
+                    <option value="perovskite">钙钛矿 (Perovskite)</option>
+                    <option value="hcp">六方密堆积 (HCP)</option>
+                    <option value="graphite">石墨 (Graphite)</option>
+                    <option value="ice">冰 (Ice Ih)</option>
+                    <option value="cu">金属铜 (Cu, 面心立方)</option>
+                    <option value="fe">金属铁 (Fe, 体心立方)</option>
+                    <option value="mg">金属镁 (Mg, 六方密堆积)</option>
+                    <option value="sio2">二氧化硅 (SiO₂)</option>
+                    <option value="triclinic">三斜晶系 (Triclinic)</option>
+                    <option value="monoclinic">单斜晶系 (Monoclinic)</option>
+                    <option value="orthorhombic">正交晶系 (Orthorhombic)</option>
+                    <option value="custom">自定义分数坐标</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">晶胞参数 (支持字母 a,b,c)</label>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div>
+                        <input type="text" id="paramA" placeholder="a" value="a">
+                        <select id="unitA" class="unit-select" style="margin-top:5px; padding:5px;"><option value="pm">pm</option><option value="A">Å</option><option value="nm" selected>nm</option><option value="um">µm</option><option value="cm">cm</option><option value="m">m</option></select>
+                    </div>
+                    <div>
+                        <input type="text" id="paramB" placeholder="b (四方/六方自动=a)" value="b">
+                        <select id="unitB" class="unit-select" style="margin-top:5px; padding:5px;"><option value="pm">pm</option><option value="A">Å</option><option value="nm" selected>nm</option><option value="um">µm</option><option value="cm">cm</option><option value="m">m</option></select>
+                    </div>
+                    <div>
+                        <input type="text" id="paramC" placeholder="c" value="c">
+                        <select id="unitC" class="unit-select" style="margin-top:5px; padding:5px;"><option value="pm">pm</option><option value="A">Å</option><option value="nm" selected>nm</option><option value="um">µm</option><option value="cm">cm</option><option value="m">m</option></select>
+                    </div>
+                    <div id="paramHexWrap" style="display:none;">
+                        <input type="text" id="paramHex" placeholder="六边形棱长 a" value="a">
+                        <div style="font-size:11px; opacity:0.6; margin-top:5px;">六边形棱长 (a)</div>
+                    </div>
+                </div>
+                <div id="symmetryNote" style="display:none; font-size:11px; opacity:0.7; margin-top:8px; line-height:1.5;"></div>
+                <div style="margin-top: 10px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px;" id="angleInputs">
+                    <input type="number" id="angleAlpha" placeholder="α (deg)" value="90">
+                    <input type="number" id="angleBeta" placeholder="β (deg)" value="90">
+                    <input type="number" id="angleGamma" placeholder="γ (deg)" value="90">
+                </div>
+                <div id="angleHint" style="display:none; font-size:11px; line-height:1.5; margin-top:6px;"></div>
+            </div>
+
+            <div class="form-group" style="background: var(--hover-bg); padding: 12px; border-radius: 6px;">
+                <label class="form-label" style="margin-bottom:12px;">显示模式控制</label>
+                
+                <div class="toggle-row">
+                    <span class="toggle-label">3D视图 - 空间填充</span>
+                    <label class="switch">
+                        <input type="checkbox" id="toggle3dFill" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                
+                <div class="toggle-row" style="border-bottom: none; margin-bottom: 0;">
+                    <span class="toggle-label">投影图 - 空间填充</span>
+                    <label class="switch">
+                        <input type="checkbox" id="toggleProjFill" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="toggle-row" style="margin-top: 8px; border-bottom:none; margin-bottom:0;">
+                    <span class="toggle-label">3D 中显示投影面</span>
+                    <label class="switch">
+                        <input type="checkbox" id="togglePlane" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-top:8px;">
+                    <div>
+                        <label style="font-size:11px; opacity:0.75;">投影面颜色</label>
+                        <input type="color" id="planeColor" value="#3a86ff" style="width:100%; padding:2px; height:28px; border:1px solid var(--border-color); border-radius:4px; background:none;">
+                    </div>
+                    <div>
+                        <label style="font-size:11px; opacity:0.75;">透明度 <span id="planeAlphaLabel">32%</span></label>
+                        <input type="range" id="planeAlpha" min="8" max="80" value="32" style="width:100%;">
+                    </div>
+                </div>
+                <div style="font-size:11px; opacity:0.65; margin-top:6px; line-height:1.5;">投影面与下方投影图视角保持一致，随晶胞一起转动。</div>
+            </div>
+
+            <div class="form-group" style="background: var(--hover-bg); padding: 12px; border-radius: 6px;">
+                <label class="form-label" style="margin-bottom:12px;">坐标系设置 (xyz 轴可单独设置)</label>
+                <div class="toggle-row" style="border-bottom:none; margin-bottom:4px;">
+                    <span class="toggle-label">显示 xyz 坐标轴</span>
+                    <label class="switch">
+                        <input type="checkbox" id="toggleAxes" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                <div style="display:grid; grid-template-columns: 34px 1fr; gap:6px; align-items:center; margin-top:8px;">
+                    <span style="color:#e06633; font-weight:bold; font-size:13px;">X 轴</span>
+                    <select class="axis-dir" data-axis="x">
+                        <option value="+a" selected>沿 x 轴 (+x)</option><option value="-a">沿 x 轴反向 (−x)</option>
+                        <option value="+b">沿 y 轴 (+y)</option><option value="-b">沿 y 轴反向 (−y)</option>
+                        <option value="+c">沿 z 轴 (+z)</option><option value="-c">沿 z 轴反向 (−z)</option>
+                    </select>
+                    <span style="color:#3aa757; font-weight:bold; font-size:13px;">Y 轴</span>
+                    <select class="axis-dir" data-axis="y">
+                        <option value="+a">沿 x 轴 (+x)</option><option value="-a">沿 x 轴反向 (−x)</option>
+                        <option value="+b" selected>沿 y 轴 (+y)</option><option value="-b">沿 y 轴反向 (−y)</option>
+                        <option value="+c">沿 z 轴 (+z)</option><option value="-c">沿 z 轴反向 (−z)</option>
+                    </select>
+                    <span style="color:#4a7fd4; font-weight:bold; font-size:13px;">Z 轴</span>
+                    <select class="axis-dir" data-axis="z">
+                        <option value="+a">沿 x 轴 (+x)</option><option value="-a">沿 x 轴反向 (−x)</option>
+                        <option value="+b">沿 y 轴 (+y)</option><option value="-b">沿 y 轴反向 (−y)</option>
+                        <option value="+c" selected>沿 z 轴 (+z)</option><option value="-c">沿 z 轴反向 (−z)</option>
+                    </select>
+                </div>
+                <div style="font-size:12px; margin-top:10px; display:flex; justify-content:space-between; align-items:center;">
+                    <span>坐标原点: <span id="originLabel" style="color:var(--primary-color); font-weight:bold;">晶胞顶点 (0,0,0)</span></span>
+                    <button class="btn btn-secondary btn-small" id="resetOriginBtn">重置</button>
+                </div>
+                <div style="font-size:11px; opacity:0.65; margin-top:6px; line-height:1.5;">在"3D图交互操作"中选"设为坐标原点"后点击原子可更换原点；此后点击原子显示的坐标均基于该自定义坐标系。</div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">原子库 (点击添加到下方列表)</label>
+                <div id="atomLibrary" style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-bottom: 12px;"></div>
+                <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                    <input type="text" id="customAtomName" placeholder="自定义名称(如X)" style="flex:1">
+                    <input type="color" id="customAtomColor" value="#ff0000" style="width:42px; padding:2px; border:1px solid var(--border-color); border-radius:4px;">
+                    <button class="btn btn-secondary btn-small" id="addCustomAtom" style="width:42px;">+</button>
+                </div>
+                <label class="form-label" style="font-size:12px; margin-top:10px;">已添加原子 (点击选中):</label>
+                <div class="atom-tags" id="activeAtomsList"></div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">快速添加位置 (当前选中: <span id="selectedAtomLabel" style="color:var(--primary-color); font-weight:bold;">无</span>)</label>
+                <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                    <button class="btn btn-secondary btn-small pos-btn" data-pos="vertex">顶点</button>
+                    <button class="btn btn-secondary btn-small pos-btn" data-pos="body">体心</button>
+                    <button class="btn btn-secondary btn-small pos-btn" data-pos="face">面心</button>
+                    <button class="btn btn-secondary btn-small pos-btn" data-pos="edge">棱心</button>
+                    <button class="btn btn-secondary btn-small pos-btn" data-pos="tetra">四面体空隙</button>
+                    <button class="btn btn-secondary btn-small pos-btn" data-pos="octa">八面体空隙</button>
+                </div>
+                <div id="positionList" style="margin-top: 10px; font-size: 12px; max-height: 120px; overflow-y: auto; border:1px solid var(--border-color); border-radius:4px; padding:4px;"></div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">自定义分数坐标 (支持小数或分数如 1/4)</label>
+                <div style="display: flex; gap: 6px;">
+                    <input type="text" id="coordX" placeholder="x (如 0.25 或 1/4)" style="width: 80px">
+                    <input type="text" id="coordY" placeholder="y" style="width: 80px">
+                    <input type="text" id="coordZ" placeholder="z" style="width: 80px">
+                    <button class="btn btn-primary btn-small" id="addCoordBtn" style="width:auto;">添加</button>
+                </div>
+                <div style="margin-top: 8px;">
+                    <label style="font-size: 12px; display:flex; align-items:center; gap:6px; cursor:pointer;">
+                        <input type="checkbox" id="applySymmetry" checked> <span id="applySymmetryLabel">应用立方晶系对称性 (生成等效点系)</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="form-group" style="background: var(--hover-bg); padding: 12px; border-radius: 6px;">
+                <label class="form-label">3D图交互操作 (点击右栏原子)</label>
+                <select id="interactionMode">
+                    <option value="view">查看坐标 (默认)</option>
+                    <option value="replace">替换原子</option>
+                    <option value="dope">掺杂替换 (点击原子 → 替换成目标原子)</option>
+                    <option value="vacancy">制造空穴 (删除)</option>
+                    <option value="setOrigin">设为坐标原点</option>
+                </select>
+                <div id="replaceOptions" style="margin-top: 8px; display: none;">
+                    <label style="font-size:12px; margin-bottom:4px; display:block;">目标原子:</label>
+                    <select id="replaceTargetSelect"></select>
+                </div>
+            </div>
+
+            <button class="btn btn-primary" id="generateBtn" style="margin-top: 10px; padding:12px; font-weight:bold;">🔄 生成 / 更新晶胞</button>
+            <button class="btn btn-secondary" id="resetBtn" style="margin-top: 10px;"> 重置所有</button>
+        </div>
+    </div>
+
+    <div class="main-view">
+        <div class="canvas-container" id="canvas3d"></div>
+        <div class="projection-container">
+            <div class="projection-header">
+                <span style="font-size: 12px; font-weight: bold;">投影视角:</span>
+                <button class="btn btn-secondary btn-small proj-btn active" data-view="top" title="沿 z 轴看, 看到 x-y 面">沿 z 轴看</button>
+                <button class="btn btn-secondary btn-small proj-btn" data-view="front" title="沿 x 轴看, 看到 y-z 面">沿 x 轴看</button>
+                <button class="btn btn-secondary btn-small proj-btn" data-view="side" title="沿 y 轴看, 看到 x-z 面">沿 y 轴看</button>
+                <button class="btn btn-secondary btn-small proj-btn" data-view="diag" title="从晶胞的一个顶点沿体对角线看向对角顶点">体对角线</button>
+                <button class="btn btn-secondary btn-small proj-btn" data-view="fdiag" title="沿面对角线方向看, 看到穿过晶胞的对角面">对角面</button>
+                <select id="fdiagSelect" class="fdiag-select" title="选择要观察的对角面 (括号内为该面的密勒指数, 视线沿其法线)">
+                    <option value="1,1,0" selected>(110) 含 x-y 面对角线</option>
+                    <option value="1,-1,0">(1-10) 另一条 x-y 面对角线</option>
+                    <option value="1,0,1">(101) 含 x-z 面对角线</option>
+                    <option value="1,0,-1">(10-1) 另一条 x-z 面对角线</option>
+                    <option value="0,1,1">(011) 含 y-z 面对角线</option>
+                    <option value="0,1,-1">(01-1) 另一条 y-z 面对角线</option>
+                </select>
+                <span id="projViewCode" class="proj-view-code">view [001]</span>
+                <label class="chk-inline" style="margin-left:auto;">
+                    <input type="checkbox" id="toggleProjectionPlane" checked> 显示投影面
+                </label>
+                <label class="chk-inline">
+                    <input type="checkbox" id="toggleProjOutside" checked> 显示晶胞外原子
+                </label>
+            </div>
+            <canvas id="projCanvas" style="flex: 1 1 0; min-height: 0; width: 100%; display: block; cursor: crosshair;"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+    <div class="modal" id="modalBox">
+        <div class="modal-title" id="modalTitle">提示</div>
+        <div class="modal-body" id="modalBody">内容</div>
+        <div class="modal-footer" id="modalFooter">
+            <button class="btn btn-primary btn-small" id="modalConfirm">确定</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const state = {
+    atoms: {}, 
+    positions: [], 
+    customCoords: [],
+    modifications: {}, 
+    persistentModifications: {}, 
+    originIndex: -1,
+    theme: 'light',
+    crystalType: 'simple_cubic',
+    params: { a: 'a', b: 'b', c: 'c', alpha: 90, beta: 90, gamma: 90 },
+    selectedAtomForAdd: null,
+    interactionMode: 'view',
+    is3dSpaceFilling: true,
+    isProjSpaceFilling: true,
+    showProjOutside: true,
+    showProjectionPlane: true,
+    projView: 'top',
+    fdiagDir: [1, 1, 0],   // 对角面的法向 (分数坐标), 即观察方向; 六种对角面共用这一项
+    plane: { show: true, color: '#3a86ff', alpha: 0.32 },
+    axes: { show: true, xDir: '+a', yDir: '+b', zDir: '+c', origin: null }
+};
+
+// 晶胞的"参考棱长"(Å), 用来把原子半径(Å)换算成占晶胞边长的比例。
+// 用户在左栏可以只写字母 a/b/c(这时晶胞在场景里是 1 个单位长), 也可以写真实数字+单位。
+// 无论哪种, 原子半径都必须按"真实晶胞里原子半径/晶胞棱长"的比例来画,
+// 否则会出现整屏一个球(半径 0.7 个晶胞) 或投影里只有几个点。
+const REF_LATTICE_ANGSTROM = {
+    simple_cubic: 3.50, bcc: 2.87, fcc: 3.61, nacl: 5.64, cscl: 4.12,
+    diamond: 3.57, zinc_blende: 5.41, fluorite: 5.46, perovskite: 3.90,
+    sio2: 7.16, rutile: 4.20, hcp: 3.21, co2: 5.62, ice: 4.52,
+    graphite: 2.46, cu: 3.61, fe: 2.87, mg: 3.21,
+    triclinic: 5.00, monoclinic: 5.00, orthorhombic: 5.00, custom: 4.00
+};
+// 长度单位 → Å
+const UNIT_TO_ANGSTROM = { pm: 0.01, A: 1, nm: 10, um: 10000, cm: 1e8, m: 1e10 };
+
+const ATOM_DB = {
+    'H': {c:'#FFFFFF', r:0.3}, 'He': {c:'#D9FFFF', r:0.3}, 'Li': {c:'#CC80FF', r:1.5}, 
+    'Be': {c:'#C2FF00', r:1.1}, 'B': {c:'#FFB5B5', r:0.9}, 'C': {c:'#909090', r:0.7}, 
+    'N': {c:'#3050F8', r:0.7}, 'O': {c:'#FF0D0D', r:0.6}, 'F': {c:'#90E050', r:0.6}, 
+    'Na': {c:'#AB5CF2', r:1.8}, 'Mg': {c:'#8AFF00', r:1.5}, 'Al': {c:'#BFA6A6', r:1.3}, 
+    'Si': {c:'#F0C8A0', r:1.1}, 'P': {c:'#FF8000', r:1.0}, 'S': {c:'#FFFF30', r:1.0}, 
+    'Cl': {c:'#1FF01F', r:1.0}, 'K': {c:'#8F40D4', r:2.2}, 'Ca': {c:'#3DFF00', r:1.9}, 
+    'Ti': {c:'#BFC2C7', r:1.4}, 'Fe': {c:'#E06633', r:1.3}, 'Cu': {c:'#C88033', r:1.3}, 
+    'Zn': {c:'#7D80B0', r:1.3}, 'Br': {c:'#A62929', r:1.1}, 'I': {c:'#940094', r:1.3}, 
+    'Cs': {c:'#57178F', r:2.6}
+};
+
+// 修正后的预设数据
+const PRESETS = {
+    'simple_cubic': { shape:'cubic', atoms:[{n:'A', p:[[0,0,0]]}] },
+    'bcc': { shape:'cubic', atoms:[{n:'A', p:[[0,0,0],[0.5,0.5,0.5]]}] },
+    'fcc': { shape:'cubic', atoms:[{n:'A', p:[[0,0,0],[0.5,0.5,0],[0.5,0,0.5],[0,0.5,0.5]]}] },
+    'nacl': { shape:'cubic', atoms:[
+        {n:'Na', p:[[0,0,0],[0.5,0.5,0],[0.5,0,0.5],[0,0.5,0.5]]},
+        {n:'Cl', p:[[0.5,0,0],[0,0.5,0],[0,0,0.5],[0.5,0.5,0.5]]}
+    ]},
+    'cscl': { shape:'cubic', atoms:[{n:'Cs', p:[[0,0,0]]}, {n:'Cl', p:[[0.5,0.5,0.5]]}] },
+    
+    // 金刚石：标准 Fd-3m 结构
+    'diamond': { shape:'cubic', atoms:[{n:'C', p:[
+        [0,0,0], [0.5,0.5,0], [0.5,0,0.5], [0,0.5,0.5], 
+        [0.25,0.25,0.25], [0.75,0.75,0.25], [0.75,0.25,0.75], [0.25,0.75,0.75]
+    ]}] },
+    
+    'zinc_blende': { shape:'cubic', atoms:[
+        {n:'Zn', p:[[0,0,0],[0.5,0.5,0],[0.5,0,0.5],[0,0.5,0.5]]},
+        {n:'S',  p:[[0.25,0.25,0.25],[0.75,0.75,0.25],[0.75,0.25,0.75],[0.25,0.75,0.75]]}
+    ]},
+    'fluorite': { shape:'cubic', atoms:[
+        {n:'Ca', p:[[0,0,0],[0.5,0.5,0],[0.5,0,0.5],[0,0.5,0.5]]},
+        {n:'F',  p:[
+            [0.25,0.25,0.25],[0.75,0.75,0.25],[0.75,0.25,0.75],[0.25,0.75,0.75],
+            [0.25,0.25,0.75],[0.75,0.75,0.75],[0.75,0.25,0.25],[0.25,0.75,0.25]
+        ]}
+    ]},
+    
+    // 金红石 (TiO2)：四方晶系
+    'rutile': { shape:'tetragonal', atoms:[
+        {n:'Ti', p:[[0,0,0],[0.5,0.5,0.5]]},
+        {n:'O',  p:[[0.3,0.3,0],[0.7,0.7,0],[0.2,0.8,0.5],[0.8,0.2,0.5]]}
+    ]},
+    
+    'perovskite': { shape:'cubic', atoms:[
+        {n:'Ca', p:[[0,0,0]]}, 
+        {n:'Ti', p:[[0.5,0.5,0.5]]}, 
+        {n:'O',  p:[[0.5,0.5,0],[0.5,0,0.5],[0,0.5,0.5]]}
+    ]},
+    'hcp': { shape:'hexagonal', atoms:[{n:'A', p:[[0,0,0],[1/3,1/3,0.5]]}] },
+
+    // ---- 组卷网/教材里最常见的几种, 按考法补进来 ----
+    // 石墨: 六方层状, 层内 C-C = a/√3 (1.42 Å), 层间距 c/2, AB 堆垛
+    'graphite': { shape:'hexagonal', atoms:[{n:'C', p:[
+        [0,0,0], [1/3,1/3,0],
+        [1/3,1/3,0.5], [2/3,2/3,0.5]
+    ]}] },
+    // 冰 (冰 Ih 的氧原子骨架): 六方, 每个 O 与 4 个 O 以氢键相连 (O-O ≈ 2.76 Å)
+    'ice': { shape:'hexagonal', atoms:[{n:'O', p:[
+        [0,0,0], [0,0,0.375],
+        [1/3,1/3,0.5], [1/3,1/3,0.875]
+    ]}] },
+    // 金属铜: 面心立方
+    'cu': { shape:'cubic', atoms:[{n:'Cu', p:[[0,0,0],[0.5,0.5,0],[0.5,0,0.5],[0,0.5,0.5]]}] },
+    // 金属铁: 体心立方 (α-Fe)
+    'fe': { shape:'cubic', atoms:[{n:'Fe', p:[[0,0,0],[0.5,0.5,0.5]]}] },
+    // 金属镁: 六方最密堆积
+    'mg': { shape:'hexagonal', atoms:[{n:'Mg', p:[[0,0,0],[1/3,1/3,0.5]]}] },
+    
+    // 二氧化硅 (β-方石英)：立方晶胞，Si 占金刚石位置，O 位于每条 Si-Si 键中点（16 个）
+    'sio2': { shape:'cubic', bondCut: 0.72, atoms: (function(){
+        const Si = [[0,0,0],[0.5,0.5,0],[0.5,0,0.5],[0,0.5,0.5],[0.25,0.25,0.25],[0.75,0.75,0.25],[0.75,0.25,0.75],[0.25,0.75,0.75]];
+        const target = Math.sqrt(3)/4; // 金刚石结构最近邻 Si-Si 距离
+        const O = [], seen = new Set();
+        Si.forEach((s1, i) => {
+            Si.forEach((s2, j) => {
+                if(i === j) return;
+                for(let dx=-1; dx<=1; dx++) for(let dy=-1; dy<=1; dy++) for(let dz=-1; dz<=1; dz++) {
+                    const p = [s2[0]+dx, s2[1]+dy, s2[2]+dz];
+                    const d = Math.sqrt((p[0]-s1[0])**2 + (p[1]-s1[1])**2 + (p[2]-s1[2])**2);
+                    if(Math.abs(d - target) < 0.01) {
+                        const m = [ ((s1[0]+p[0])/2 % 1 + 1) % 1, ((s1[1]+p[1])/2 % 1 + 1) % 1, ((s1[2]+p[2])/2 % 1 + 1) % 1 ];
+                        const k = m.map(v=>v.toFixed(4)).join(',');
+                        if(!seen.has(k)) { seen.add(k); O.push(m); }
+                    }
+                }
+            });
+        });
+        return [{n:'Si', p:Si}, {n:'O', p:O}];
+    })() },
+
+    'triclinic': { shape:'triclinic', atoms:[{n:'A', p:[[0,0,0]]}] },
+    // 单斜晶系示例 (β ≈ 99°，高中/大学结构化学常见的变形立方)
+    'monoclinic': { shape:'monoclinic', atoms:[{n:'A', p:[[0,0,0]]}] },
+    // 正交晶系示例 (a ≠ b ≠ c)
+    'orthorhombic': { shape:'orthorhombic', atoms:[{n:'A', p:[[0,0,0]]}] }
+};
+
+window.onload = function() {
+    initTheme();
+    initAtomLibrary();
+    initThreeJS();
+    setupEventListeners();
+    updateCellParamUI();
+    loadPreset('simple_cubic');
+    updateUI();
+    // 首次打开必须主动建一次模型: loadPreset 只填数据, 不重建场景
+    // (之前漏了这一句, 打开页面时 3D 图与投影图都是空白, 要动一下控件才出现)
+    generateCrystal();
+};
+
+function setupEventListeners() {
+    document.getElementById('crystalType').addEventListener('change', (e) => {
+        state.crystalType = e.target.value;
+        if(PRESETS[state.crystalType]) loadPreset(state.crystalType);
+        updateCellParamUI();
+        // 切换类型后立即自动重建 3D 图，避免显示旧结构
+        generateCrystal();
+    });
+
+    document.getElementById('addCustomAtom').addEventListener('click', () => {
+        const name = document.getElementById('customAtomName').value.trim();
+        const color = document.getElementById('customAtomColor').value;
+        if(!name) return showModal('错误', '请输入原子名称');
+        if(state.atoms[name]) return showModal('错误', '该原子已存在');
+        state.atoms[name] = { color: color, radius: 1.0, custom: true };
+        renderActiveAtoms();
+        updateReplaceSelect();
+        selectAtom(name);
+        document.getElementById('customAtomName').value = '';
+    });
+
+    document.querySelectorAll('.pos-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if(!state.selectedAtomForAdd) return showModal('提示', '请先在上方原子库中点击选择一个原子');
+            addPositionByType(btn.dataset.pos);
+            scheduleRegen();
+        });
+    });
+
+    document.getElementById('addCoordBtn').addEventListener('click', () => {
+        if(!state.selectedAtomForAdd) return showModal('提示', '请先选择原子');
+        
+        const xStr = document.getElementById('coordX').value.trim();
+        const yStr = document.getElementById('coordY').value.trim();
+        const zStr = document.getElementById('coordZ').value.trim();
+        
+        const x = parseFraction(xStr);
+        const y = parseFraction(yStr);
+        const z = parseFraction(zStr);
+        
+        if(isNaN(x) || isNaN(y) || isNaN(z)) return showModal('错误', '请输入有效数字或分数 (如 1/4)');
+        
+        state.positions.push({ atom: state.selectedAtomForAdd, frac: [x,y,z], type: 'custom' });
+        updatePositionList();
+        scheduleRegen();
+        
+        document.getElementById('coordX').value = '';
+        document.getElementById('coordY').value = '';
+        document.getElementById('coordZ').value = '';
+    });
+
+    document.getElementById('generateBtn').addEventListener('click', generateCrystal);
+    
+    document.getElementById('resetBtn').addEventListener('click', () => {
+        showModal('确认重置', '确定要重置所有设置吗？这将清除所有自定义原子、位置和持久化修改。', () => {
+            location.reload();
+        });
+    });
+
+    document.getElementById('interactionMode').addEventListener('change', (e) => {
+        state.interactionMode = e.target.value;
+        document.getElementById('replaceOptions').style.display = (state.interactionMode === 'replace' || state.interactionMode === 'dope') ? 'block' : 'none';
+    });
+
+    document.querySelectorAll('.proj-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            document.querySelectorAll('.proj-btn').forEach(b => b.classList.remove('active'));
+            const target = e.currentTarget;
+            target.classList.add('active');
+            state.projView = target.dataset.view;
+            hideProjTooltip();
+            updateProjViewCode();
+            renderProjection(state.projView);
+            updateProjectionPlane();
+        });
+    });
+
+    // 对角面选择: 六种对角面共用"对角面"视角, 只换观察方向 (法线)
+    const fdiagSel = document.getElementById('fdiagSelect');
+    if (fdiagSel) {
+        fdiagSel.addEventListener('change', () => {
+            state.fdiagDir = fdiagSel.value.split(',').map(v => parseInt(v, 10) || 0);
+            // 切到"对角面"视角并按新法线重画
+            document.querySelectorAll('.proj-btn').forEach(b => b.classList.remove('active'));
+            const btn = document.querySelector('.proj-btn[data-view="fdiag"]');
+            if (btn) btn.classList.add('active');
+            state.projView = 'fdiag';
+            updateProjViewCode();
+            renderProjection(state.projView);
+            updateProjectionPlane();
+        });
+    }
+
+    document.getElementById('toggleProjectionPlane').addEventListener('change', (e) => {
+        state.showProjectionPlane = e.target.checked;
+        updateProjectionPlane();
+    });
+
+    document.getElementById('projCanvas').addEventListener('click', handleProjectionClick);
+
+    window.addEventListener('resize', () => {
+        onWindowResize();
+        renderProjection(state.projView);
+    });
+
+    document.getElementById('toggle3dFill').addEventListener('change', (e) => {
+        state.is3dSpaceFilling = e.target.checked;
+        updateAtomSizes(); 
+    });
+
+    document.getElementById('toggleProjFill').addEventListener('change', (e) => {
+        state.isProjSpaceFilling = e.target.checked;
+        renderProjection(state.projView);
+    });
+
+    // 晶胞外原子显示开关 (仅影响投影图; 3D 图始终显示)
+    document.getElementById('toggleProjOutside').addEventListener('change', (e) => {
+        state.showProjOutside = e.target.checked;
+        renderProjection(state.projView);
+    });
+
+    // 3D 投影面: 显示开关 / 颜色 / 透明度
+    document.getElementById('togglePlane').addEventListener('change', (e) => {
+        state.plane.show = e.target.checked;
+        if(projPlaneGroup) projPlaneGroup.visible = e.target.checked;
+    });
+    document.getElementById('planeColor').addEventListener('input', (e) => {
+        state.plane.color = e.target.value;
+        updateProjectionPlane();
+    });
+    document.getElementById('planeAlpha').addEventListener('input', (e) => {
+        state.plane.alpha = parseInt(e.target.value, 10) / 100;
+        document.getElementById('planeAlphaLabel').innerText = e.target.value + '%';
+        updateProjectionPlane();
+    });
+
+    // 坐标轴显示 / 方向设置
+    document.getElementById('toggleAxes').addEventListener('change', (e) => {
+        state.axes.show = e.target.checked;
+        generateCrystal();
+    });
+
+    document.querySelectorAll('.axis-dir').forEach(sel => {
+        sel.addEventListener('change', () => {
+            const axis = sel.dataset.axis;
+            const newVal = sel.value;
+            const oldVal = state.axes[axis + 'Dir'];
+            state.axes[axis + 'Dir'] = newVal;
+            // 保证 x/y/z 三条轴分别对应三条不同晶棱，若冲突则与被占用的轴交换
+            const base = (s) => String(s).replace('-', '');
+            ['x','y','z'].forEach(k => {
+                if(k !== axis && base(state.axes[k + 'Dir']) === base(newVal)) {
+                    state.axes[k + 'Dir'] = oldVal;
+                    const other = document.querySelector('.axis-dir[data-axis="' + k + '"]');
+                    if(other) other.value = oldVal;
+                }
+            });
+            generateCrystal();
+        });
+    });
+
+    document.getElementById('resetOriginBtn').addEventListener('click', () => {
+        state.axes.origin = null;
+        state.originIndex = -1;
+        document.getElementById('originLabel').innerText = '晶胞顶点 (0,0,0)';
+        generateCrystal();
+    });
+
+    // 晶胞参数 / 角度 / 对称性变化后自动重算 (防抖)
+    ['paramA','paramB','paramC','paramHex','angleAlpha','angleBeta','angleGamma'].forEach(id => {
+        const el = document.getElementById(id);
+        el.addEventListener('input', () => { updateAngleHint(); scheduleRegen(); });
+        el.addEventListener('change', () => { updateAngleHint(); scheduleRegen(); });
+    });
+    document.getElementById('angleAlpha').addEventListener('input', updateAngleHint);
+    document.getElementById('angleGamma').addEventListener('input', updateAngleHint);
+    // 单位切换会改变"1 Å 对应多少场景单位", 原子半径随之变化, 必须重算
+    document.querySelectorAll('.unit-select').forEach(el => {
+        el.addEventListener('change', scheduleRegen);
+    });
+    document.getElementById('applySymmetry').addEventListener('change', scheduleRegen);
+}
+
+function parseFraction(str) {
+    if (!str) return NaN;
+    str = String(str).replace(/\s/g, ''); 
+    if (str.includes('/')) {
+        const parts = str.split('/');
+        if (parts.length === 2) {
+            const num = parseFloat(parts[0]);
+            const den = parseFloat(parts[1]);
+            if (!isNaN(num) && !isNaN(den) && den !== 0) return num / den;
+        }
+        return NaN;
+    }
+    return parseFloat(str);
+}
+
+// ===== 晶系约束 (三斜/单斜/正交/四方/六方/立方) =====
+// 每种晶胞类型属于哪一晶系、哪些参数与角度被晶系约束, 统一在这里管理
+const CELL_SYSTEMS = {
+    cubic:     { label: '立方晶系',     constraint: 'a = b = c，α = β = γ = 90°', free: [],                  symLabel: '立方晶系', symOps: 'CUBIC_OPS' },
+    tetragonal:{ label: '四方晶系',     constraint: 'a = b ≠ c，α = β = γ = 90°', free: ['c'],               symLabel: '四方晶系', symOps: 'TETRA_OPS' },
+    hexagonal: { label: '六方晶系',     constraint: 'a = b ≠ c，α = β = 90°，γ = 120°（六棱柱）', free: ['c'], symLabel: '六方晶系', symOps: 'HEX_OPS' },
+    orthorhombic:{ label: '正交晶系',   constraint: 'a ≠ b ≠ c，α = β = γ = 90°', free: ['a','b','c'],        symLabel: '正交晶系', symOps: 'ORTHO_OPS' },
+    monoclinic:{ label: '单斜晶系',     constraint: 'a ≠ b ≠ c，β ≠ 90°，α = γ = 90°', free: ['a','b','c'], symLabel: '单斜晶系', symOps: 'MONO_OPS' },
+    triclinic: { label: '三斜晶系',     constraint: 'a ≠ b ≠ c，α ≠ β ≠ γ ≠ 90°（无约束）', free: ['a','b','c'], symLabel: '三斜晶系', symOps: 'TRICLINIC_OPS' }
+};
+
+const CELL_TYPE_SYSTEM = {
+    simple_cubic:'cubic', bcc:'cubic', fcc:'cubic', nacl:'cubic', cscl:'cubic',
+    diamond:'cubic', zinc_blende:'cubic', fluorite:'cubic', perovskite:'cubic', sio2:'cubic', custom:'cubic',
+    rutile:'tetragonal',
+    hcp:'hexagonal',
+    graphite:'hexagonal', ice:'hexagonal', mg:'hexagonal',
+    cu:'cubic', fe:'cubic',
+    triclinic:'triclinic',
+    monoclinic:'monoclinic',
+    orthorhombic:'orthorhombic'
+};
+
+// 六方结构的理想 c/a (输入框留空/写字母时用): 石墨层间距远大于棱长, 冰/镁接近理想值
+const HEX_C_OVER_A = { graphite: 2.73, ice: 1.628, hcp: 1.633, mg: 1.624 };
+
+function cellSystemOf(type) {
+    return CELL_SYSTEMS[CELL_TYPE_SYSTEM[type]] || CELL_SYSTEMS.cubic;
+}
+
+// 角度合法性: 三斜/单斜等必须满足 Gram 行列式 > 0, 否则三根轴画不出合法晶胞
+function anglesLegal(alpha, beta, gamma) {
+    const ca = Math.cos(alpha*Math.PI/180), cb = Math.cos(beta*Math.PI/180), cg = Math.cos(gamma*Math.PI/180);
+    return (1 - ca*ca - cb*cb - cg*cg + 2*ca*cb*cg) > 1e-6;
+}
+
+// 角度输入框下面的动态提示 (只在三斜/单斜等真正可变角时显示)
+function updateAngleHint() {
+    const sysKey = CELL_TYPE_SYSTEM[state.crystalType] || 'cubic';
+    const el = document.getElementById('angleHint');
+    const a = parseFloat(document.getElementById('angleAlpha').value);
+    const b = parseFloat(document.getElementById('angleBeta').value);
+    const c = parseFloat(document.getElementById('angleGamma').value);
+
+    if(sysKey !== 'triclinic' && sysKey !== 'monoclinic') {
+        el.style.display = 'none';
+        return;
+    }
+    el.style.display = 'block';
+    if(!anglesLegal(a, b, c)) {
+        el.style.color = '#e05252';
+        el.innerHTML = `⚠ 当前角度组合 (α=${a}°, β=${b}°, γ=${c}°) 无法构成合法晶胞 (Gram 行列式 ≤ 0)，坐标轴长度会退化为 0。请调整角度，例如 β 在 20°–160° 之间。`;
+    } else {
+        el.style.color = 'var(--primary-color)';
+        el.innerHTML = sysKey === 'monoclinic'
+            ? `单斜: a ≠ b ≠ c，β ≠ 90°（α = γ = 90°），β = ${b}°`
+            : `三斜: a ≠ b ≠ c，α = ${a}°，β = ${b}°，γ = ${c}°，全部可变`;
+    }
+}
+
+// 切换晶胞类型时刷新参数输入区的可用状态 (哪些被晶系约束锁定)
+let lastParamSys = null;   // 上一次的晶系, 用于判断"刚切过来"从而填默认角度
+function updateCellParamUI() {
+    const sysKey = CELL_TYPE_SYSTEM[state.crystalType] || 'cubic';
+    const sys = CELL_SYSTEMS[sysKey];
+    const type = state.crystalType;
+    const isHex = (sysKey === 'hexagonal');
+    const isFree = (k) => sys.free.includes(k);
+
+    // 六棱柱: b 固定等于六边形棱长, c 为高度
+    document.getElementById('paramHexWrap').style.display = isHex ? 'block' : 'none';
+
+    const setField = (id, enabled) => {
+        const el = document.getElementById(id);
+        el.disabled = !enabled;
+        el.style.opacity = enabled ? '1' : '0.55';
+        el.style.cursor = enabled ? 'text' : 'not-allowed';
+    };
+    setField('paramA', isFree('a'));
+    setField('paramB', isFree('b'));
+    setField('paramC', isFree('c'));
+
+    // 角度: 只有三斜(全部)与单斜(仅 β)可改
+    const angEnabled = { alpha: sysKey === 'triclinic', beta: (sysKey === 'triclinic' || sysKey === 'monoclinic'), gamma: sysKey === 'triclinic' };
+    const setAngle = (id, enabled, val) => {
+        const el = document.getElementById(id);
+        el.disabled = !enabled;
+        el.style.opacity = enabled ? '1' : '0.55';
+        el.value = val;
+    };
+    const keep = (id, def) => {
+        const el = document.getElementById(id);
+        return el.disabled ? def : el.value;
+    };
+    // 进入三斜/单斜时给一组"非 90°"的默认角度:
+    // 若沿用上一次的 90/90/90, 三斜晶胞画出来和立方一模一样, 用户会以为没生效
+    const switched = (lastParamSys !== sysKey);
+    if(switched) {
+        if(sysKey === 'triclinic') {
+            setAngle('angleAlpha', true, 80);
+            setAngle('angleBeta', true, 75);
+            setAngle('angleGamma', true, 70);
+        } else if(sysKey === 'monoclinic') {
+            setAngle('angleAlpha', false, 90);
+            setAngle('angleBeta', true, 99);
+            setAngle('angleGamma', false, 90);
+        } else {
+            setAngle('angleAlpha', false, 90);
+            setAngle('angleBeta', false, 90);
+            setAngle('angleGamma', false, 90);
+        }
+    } else {
+        setAngle('angleAlpha', angEnabled.alpha, parseFloat(keep('angleAlpha', 90)) || 90);
+        setAngle('angleBeta', angEnabled.beta, parseFloat(keep('angleBeta', 90)) || 90);
+        setAngle('angleGamma', angEnabled.gamma, parseFloat(keep('angleGamma', 90)) || 90);
+    }
+    lastParamSys = sysKey;
+    document.getElementById('angleInputs').style.opacity = '1';
+
+    // 晶系说明
+    const note = document.getElementById('symmetryNote');
+    note.style.display = 'block';
+    note.innerHTML = `<b>${sys.label}</b>：${sys.constraint}`;
+
+    // 对称性勾选框的文案随晶系切换 (三斜没有可扩展的等效点, 直接禁用)
+    const sym = document.getElementById('applySymmetry');
+    const symLabel = document.getElementById('applySymmetryLabel');
+    if(sysKey === 'triclinic') {
+        sym.checked = false;
+        sym.disabled = true;
+        symLabel.innerText = '三斜晶系：无对称操作，每个分数坐标只生成 1 个原子';
+        symLabel.style.opacity = '0.55';
+    } else {
+        sym.disabled = false;
+        symLabel.innerText = `应用${sys.symLabel}对称性 (生成等效点系，分数坐标只输入一个)`;
+        symLabel.style.opacity = '1';
+    }
+
+    updateAngleHint();
+}
+
+// 防抖自动重算：改输入后 600ms 自动重建晶胞，不打断输入
+let _regenTimer = null;
+function scheduleRegen() {
+    clearTimeout(_regenTimer);
+    _regenTimer = setTimeout(() => generateCrystal(), 600);
+}
+
+// 把晶胞分数坐标换算到用户自定义坐标系 (原点 + xyz 各自方向)
+function userFrameCoord(frac) {
+    const ax = state.axes;
+    const o = ax.origin || [0, 0, 0];
+    const d = [frac[0] - o[0], frac[1] - o[1], frac[2] - o[2]];
+    const idxMap = { a: 0, b: 1, c: 2 };
+    const comp = (s) => {
+        const sign = (s || '').trim().startsWith('-') ? -1 : 1;
+        const letter = (s || '').replace(/[^abc]/g, '');
+        return sign * d[(idxMap[letter] !== undefined) ? idxMap[letter] : 0];
+    };
+    return [comp(ax.xDir), comp(ax.yDir), comp(ax.zDir)];
+}
+
+// 生成坐标轴末端文字标签 (x/y/z) 的精灵图
+function makeAxisLabel(text, color, size) {
+    const cv = document.createElement('canvas');
+    cv.width = 64; cv.height = 64;
+    const c2 = cv.getContext('2d');
+    c2.font = 'bold 46px sans-serif';
+    c2.fillStyle = color;
+    c2.textAlign = 'center';
+    c2.textBaseline = 'middle';
+    c2.fillText(text, 32, 34);
+    const tex = new THREE.CanvasTexture(cv);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
+    const s = size || 0.32;   // 字母大小随晶胞尺寸缩放, 否则大晶胞里字太小 / 小晶胞里字糊满屏\n    sp.scale.set(s, s, 1);
+    return sp;
+}
+
+const defaultThemes = {
+    light: {
+        '--bg-color': '#f5f7fa', '--sidebar-bg': '#ffffff', '--text-color': '#303133',
+        '--primary-color': '#409eff', '--selected-bg': '#ecf5ff', '--hover-bg': '#f2f6fc', '--input-bg': '#f5f7fa'
+    },
+    dark: {
+        '--bg-color': '#1a1a1a', '--sidebar-bg': '#252526', '--text-color': '#e0e0e0',
+        '--primary-color': '#409eff', '--selected-bg': '#3a3a3c', '--hover-bg': '#333333', '--input-bg': '#3c3c3c'
+    }
+};
+
+const PRESET_THEMES = [
+    {
+        name: '海洋蓝',
+        vars: { '--bg-color': '#f0f9ff', '--sidebar-bg': '#ffffff', '--text-color': '#1e293b', '--primary-color': '#0ea5e9', '--selected-bg': '#e0f2fe', '--hover-bg': '#f1f5f9', '--input-bg': '#f8fafc' }
+    },
+    {
+        name: '森林绿',
+        vars: { '--bg-color': '#f0fdf4', '--sidebar-bg': '#ffffff', '--text-color': '#14532d', '--primary-color': '#16a34a', '--selected-bg': '#dcfce7', '--hover-bg': '#f0fdf4', '--input-bg': '#f8fafc' }
+    },
+    {
+        name: '日落橙',
+        vars: { '--bg-color': '#fff7ed', '--sidebar-bg': '#ffffff', '--text-color': '#431407', '--primary-color': '#ea580c', '--selected-bg': '#ffedd5', '--hover-bg': '#fff7ed', '--input-bg': '#fafafa' }
+    }
+];
+
+let currentThemeConfig = JSON.parse(JSON.stringify(defaultThemes.light));
+
+function initTheme() {
+    applyThemeVars(currentThemeConfig);
+    document.getElementById('themeSettingsBtn').addEventListener('click', openThemeModal);
+}
+
+function applyThemeVars(vars) {
+    const root = document.documentElement;
+    for(let key in vars) root.style.setProperty(key, vars[key]);
+}
+
+function openThemeModal() {
+    const overlay = document.getElementById('modalOverlay');
+    const title = document.getElementById('modalTitle');
+    const body = document.getElementById('modalBody');
+    const footer = document.getElementById('modalFooter');
+    
+    title.innerText = '🎨 自定义主题 (' + (state.theme === 'light' ? '浅色' : '深色') + ')';
+    body.innerHTML = '';
+    
+    const presetsDiv = document.createElement('div');
+    presetsDiv.className = 'theme-presets';
+    
+    PRESET_THEMES.forEach(preset => {
+        const btn = document.createElement('div');
+        btn.className = 'preset-btn';
+        btn.style.background = `linear-gradient(135deg, ${preset.vars['--primary-color']} 50%, ${preset.vars['--sidebar-bg']} 50%)`;
+        btn.innerHTML = `<div class="preset-name">${preset.name}</div>`;
+        btn.onclick = () => {
+            currentThemeConfig = JSON.parse(JSON.stringify(preset.vars));
+            applyThemeVars(currentThemeConfig);
+            document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            refreshColorInputs();
+        };
+        presetsDiv.appendChild(btn);
+    });
+    body.appendChild(presetsDiv);
+    
+    const varNames = {
+        '--bg-color': '背景颜色', '--sidebar-bg': '侧边栏背景', '--text-color': '文字颜色',
+        '--primary-color': '主色调', '--selected-bg': '选中项背景', '--hover-bg': '悬停背景', '--input-bg': '输入框背景'
+    };
+
+    const editContainer = document.createElement('div');
+    editContainer.id = 'colorEditContainer';
+    
+    for(let [cssVar, label] of Object.entries(varNames)) {
+        const row = document.createElement('div');
+        row.className = 'color-edit-row';
+        
+        const lbl = document.createElement('div');
+        lbl.className = 'color-edit-label';
+        lbl.innerText = label;
+        
+        const colorInp = document.createElement('input');
+        colorInp.type = 'color'; 
+        colorInp.className = 'color-picker';
+        colorInp.dataset.var = cssVar;
+        colorInp.value = currentThemeConfig[cssVar];
+        
+        const hexInp = document.createElement('input');
+        hexInp.type = 'text'; 
+        hexInp.className = 'color-edit-input';
+        hexInp.value = currentThemeConfig[cssVar];
+        hexInp.dataset.var = cssVar;
+        
+        const updateTheme = (newVal) => {
+            if(/^#[0-9A-F]{6}$/i.test(newVal)) {
+                currentThemeConfig[cssVar] = newVal;
+                applyThemeVars(currentThemeConfig);
+                colorInp.value = newVal;
+                hexInp.value = newVal;
+            }
+        };
+        
+        colorInp.addEventListener('input', (e) => updateTheme(e.target.value));
+        hexInp.addEventListener('change', (e) => updateTheme(e.target.value));
+        hexInp.addEventListener('blur', (e) => {
+            let val = e.target.value;
+            if(!val.startsWith('#')) val = '#' + val;
+            updateTheme(val);
+        });
+
+        row.appendChild(lbl);
+        row.appendChild(colorInp);
+        row.appendChild(hexInp);
+        editContainer.appendChild(row);
+    }
+    body.appendChild(editContainer);
+
+    footer.innerHTML = '';
+    
+    const modeBtn = document.createElement('button');
+    modeBtn.className = 'btn btn-secondary btn-small';
+    modeBtn.innerText = '切换到 ' + (state.theme === 'light' ? '深色' : '浅色') + ' 模式';
+    modeBtn.onclick = () => {
+        state.theme = state.theme === 'light' ? 'dark' : 'light';
+        document.body.setAttribute('data-theme', state.theme);
+        currentThemeConfig = JSON.parse(JSON.stringify(defaultThemes[state.theme]));
+        openThemeModal();
+        applyThemeVars(currentThemeConfig);
+        updateThreeJSBackground();
+        renderProjection(state.projView);
+        updateProjectionPlane();
+    };
+    footer.appendChild(modeBtn);
+
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'btn btn-secondary btn-small'; 
+    resetBtn.style.marginLeft = '10px';
+    resetBtn.innerText = '恢复默认';
+    resetBtn.onclick = () => {
+        currentThemeConfig = JSON.parse(JSON.stringify(defaultThemes[state.theme]));
+        openThemeModal();
+        applyThemeVars(currentThemeConfig);
+        updateThreeJSBackground();
+        renderProjection(state.projView);
+        updateProjectionPlane();
+    };
+    footer.appendChild(resetBtn);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'btn btn-primary btn-small'; 
+    closeBtn.style.marginLeft = '10px';
+    closeBtn.innerText = '完成';
+    closeBtn.onclick = () => overlay.style.display = 'none';
+    footer.appendChild(closeBtn);
+
+    overlay.style.display = 'flex';
+}
+
+function refreshColorInputs() {
+    const container = document.getElementById('colorEditContainer');
+    if(!container) return;
+    const rows = container.querySelectorAll('.color-edit-row');
+    rows.forEach(row => {
+        const picker = row.querySelector('.color-picker');
+        const hex = row.querySelector('.color-edit-input');
+        if(picker && hex) {
+            const v = currentThemeConfig[picker.dataset.var];
+            picker.value = v;
+            hex.value = v;
+        }
+    });
+}
+
+// 统一模态框: 提示 / 确认 / 多选都走这里 (msg 可以是文本, 也可以是 HTML 字符串)
+function showModal(title, msg, onConfirm = null) {
+    // 所有提示统一走 _openModal: 它自己生成按钮, 不再依赖页面上固定的 #modalConfirm
+    // (那个按钮在第一次 _openModal 重写 footer 时就被移除了, cloneNode 会拿到 null)
+    _openModal(title, msg, [{ text: '确定', primary: true, onClick: onConfirm || null }]);
+}
+
+function closeModal() {
+    document.getElementById('modalOverlay').style.display = 'none';
+}
+
+// 通用弹窗: buttons 为 [{text, primary, onClick}]; 点击遮罩/Esc 关闭
+function _openModal(title, bodyHTML, buttons) {
+    const overlay = document.getElementById('modalOverlay');
+    document.getElementById('modalTitle').innerText = title;
+    const body = document.getElementById('modalBody');
+    body.innerHTML = bodyHTML;
+    const footer = document.getElementById('modalFooter');
+    footer.innerHTML = '';
+    (buttons || []).forEach(b => {
+        const el = document.createElement('button');
+        el.className = 'btn btn-small ' + (b.primary ? 'btn-primary' : 'btn-secondary');
+        el.innerText = b.text;
+        el.onclick = () => { closeModal(); if(b.onClick) b.onClick(); };
+        footer.appendChild(el);
+    });
+    overlay.style.display = 'flex';
+    return body;
+}
+document.addEventListener('keydown', (e) => {
+    if(e.key === 'Escape') closeModal();
+});
+document.addEventListener('click', (e) => {
+    if(e.target && e.target.id === 'modalOverlay') closeModal();
+});
+
+function initAtomLibrary() {
+    const container = document.getElementById('atomLibrary');
+    container.innerHTML = '';
+    for(let sym in ATOM_DB) {
+        const btn = document.createElement('div');
+        btn.className = 'atom-tag';
+        btn.innerHTML = `<span class="color-dot" style="background:${ATOM_DB[sym].c}"></span>${sym}`;
+        btn.onclick = () => addToActiveAtoms(sym);
+        container.appendChild(btn);
+    }
+}
+
+function addToActiveAtoms(name) {
+    if(!state.atoms[name]) {
+        const dbData = ATOM_DB[name] || {c:'#888', r:1.0};
+        state.atoms[name] = { color: dbData.c, radius: dbData.r };
+    }
+    renderActiveAtoms();
+    updateReplaceSelect();
+    selectAtom(name);
+}
+
+function selectAtom(name) {
+    state.selectedAtomForAdd = name;
+    document.getElementById('selectedAtomLabel').innerText = name;
+    
+    document.querySelectorAll('#activeAtomsList .atom-tag').forEach(t => t.classList.remove('active'));
+    const tags = Array.from(document.querySelectorAll('#activeAtomsList .atom-tag'));
+    const target = tags.find(t => t.innerText.startsWith(name + ' '));
+    if(target) target.classList.add('active');
+}
+
+function renderActiveAtoms() {
+    const list = document.getElementById('activeAtomsList');
+    list.innerHTML = '';
+    for(let name in state.atoms) {
+        const tag = document.createElement('div');
+        tag.className = 'atom-tag';
+        if(state.selectedAtomForAdd === name) tag.classList.add('active');
+        tag.innerHTML = `${name} <span class="color-dot" style="background:${state.atoms[name].color}"></span> <span class="delete-atom">×</span>`;
+        
+        tag.onclick = (e) => {
+            if(!e.target.classList.contains('delete-atom')) {
+                selectAtom(name);
+            }
+        };
+        
+        tag.querySelector('.delete-atom').onclick = (e) => {
+            e.stopPropagation();
+            showModal('确认删除', `确定要从原子库中删除 ${name} 吗？相关位置也会被移除。`, () => {
+                delete state.atoms[name];
+                state.positions = state.positions.filter(p => p.atom !== name);
+                if(state.selectedAtomForAdd === name) {
+                    state.selectedAtomForAdd = null;
+                    document.getElementById('selectedAtomLabel').innerText = '无';
+                }
+                renderActiveAtoms();
+                updatePositionList();
+                scheduleRegen();
+            });
+        };
+        
+        list.appendChild(tag);
+    }
+    updateReplaceSelect();
+}
+
+function updateReplaceSelect() {
+    const sel = document.getElementById('replaceTargetSelect');
+    // 重建下拉框时必须保留用户已选的目标原子,
+    // 否则任何一次原子库刷新都会把它悄悄重置成第一项(通常是 A), 于是点谁都是"原本就是 A"
+    const prev = sel.value;
+    sel.innerHTML = '';
+    for(let name in state.atoms) {
+        const opt = document.createElement('option');
+        opt.value = name; opt.innerText = name;
+        sel.appendChild(opt);
+    }
+    if(prev && state.atoms[prev]) sel.value = prev;
+}
+
+function loadPreset(key) {
+    const p = PRESETS[key];
+    if(!p) return;
+    state.atoms = {};
+    state.positions = [];
+    state.persistentModifications = {};
+    // 原子列表重建后旧原点索引失效, 重置坐标系原点
+    state.axes.origin = null;
+    state.originIndex = -1;
+    document.getElementById('originLabel').innerText = '晶胞顶点 (0,0,0)';
+    
+    p.atoms.forEach(group => {
+        if(!state.atoms[group.n]) {
+            const dbData = ATOM_DB[group.n] || {c:'#888', r:1.0};
+            state.atoms[group.n] = { color: dbData.c, radius: dbData.r };
+        }
+        group.p.forEach(frac => {
+            state.positions.push({ atom: group.n, frac: frac, type: 'preset' });
+        });
+    });
+    renderActiveAtoms();
+    updatePositionList();
+}
+
+function addPositionByType(type) {
+    const atom = state.selectedAtomForAdd;
+    const coords = [];
+    switch(type) {
+        case 'vertex': coords.push([0,0,0]); break;
+        case 'body': coords.push([0.5,0.5,0.5]); break;
+        case 'face': coords.push([0.5,0.5,0], [0.5,0,0.5], [0,0.5,0.5]); break;
+        case 'edge': coords.push([0.5,0,0], [0,0.5,0], [0,0,0.5]); break;
+        case 'tetra': coords.push([0.25,0.25,0.25], [0.75,0.75,0.25], [0.75,0.25,0.75], [0.25,0.75,0.75]); break;
+        case 'octa': coords.push([0.5,0,0], [0,0.5,0], [0,0,0.5], [0.5,0.5,0.5]); break;
+    }
+    coords.forEach(c => state.positions.push({atom, frac:c, type}));
+    updatePositionList();
+}
+
+function updatePositionList() {
+    const div = document.getElementById('positionList');
+    div.innerHTML = state.positions.map((p, i) => 
+        `<div style="padding:4px 6px; border-bottom:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;">
+            <span><strong>${p.atom}</strong>: (${p.frac.map(x=>x.toFixed(2)).join(',')})</span>
+            <button class="btn btn-small btn-danger" onclick="removePos(${i})" style="padding:2px 6px;">×</button>
+         </div>`
+    ).join('');
+}
+
+window.removePos = function(i) {
+    state.positions.splice(i, 1);
+    updatePositionList();
+    scheduleRegen();
+}
+
+let scene, camera, renderer, controls;
+let atomMeshes = [];
+let bondLines = [];
+let cellEdges = [];
+let axesHelper;
+let axesGroup = null;
+let projPlaneGroup = null;   // 3D 中的投影面 (条纹透明材质, 随视角 / 晶胞转动)
+
+function initThreeJS() {
+    const container = document.getElementById('canvas3d');
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue('--bg-color').trim());
+
+    camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+    camera.position.set(5, 5, 5);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.physicallyCorrectLights = true;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    container.appendChild(renderer.domElement);
+
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    dirLight.position.set(5, 10, 7);
+    scene.add(dirLight);
+    const backLight = new THREE.DirectionalLight(0xffffff, 0.5);
+    backLight.position.set(-5, -5, -5);
+    scene.add(backLight);
+
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    // 鼠标悬停: 只更新指针形状 (坐标信息统一在左栏"查看原子坐标"里以模态框给出,
+    // 避免画布上出现大小不一的小字浮框)
+    renderer.domElement.addEventListener('mousemove', (event) => {
+        if(!controls || controls.state !== -1) { renderer.domElement.style.cursor = 'default'; return; }
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const hit = raycaster.intersectObjects(atomMeshes.filter(m => m.visible));
+        renderer.domElement.style.cursor = hit.length > 0
+            ? (state.interactionMode === 'view' ? 'help' : 'pointer')
+            : 'default';
+    });
+
+    renderer.domElement.addEventListener('click', (event) => {
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObjects(atomMeshes.filter(m => m.visible));
+        if(intersects.length === 0) return;
+        // 一条视线上可能压着好几个原子 (前面的球挡住后面的), 先去重成"真正的原子"列表
+        const list = uniqueAtoms(intersects.map(h => h.object));
+
+        if(state.interactionMode === 'view') { pickAtomAt(list); return; }
+        if(list.length <= 1) { applyAtomAction(list[0]); return; }
+        // 其它模式 (替换/空穴/设原点) 遇到重叠时也要先让用户选清楚,
+        // 否则点的是"看得见的那个", 改的却是"被挡住的最前面那个"
+        const verb = state.interactionMode === 'vacancy' ? '挖成空穴'
+                   : state.interactionMode === 'setOrigin' ? '设为原点' : '替换';
+        chooseAtomModal(list, `选择要${verb}的原子`, applyAtomAction);
+    });
+
+    animate();
+}
+
+// 同一条视线上的原子去重 (边界补全会在 0 和 1 处各放一个球, 它们是同一个原子)
+function uniqueAtoms(meshes) {
+    const seen = new Set();
+    const list = [];
+    meshes.forEach(m => {
+        const f = m.userData.frac.map(v => ((v % 1) + 1) % 1).map(v => v.toFixed(3).replace(/^1\.000$/, '0.000'));
+        const k = m.userData.atom + '@' + f.join(',');
+        if(seen.has(k)) return;
+        seen.add(k);
+        list.push(m);
+    });
+    return list;
+}
+
+// 把一组原子渲染成可点击列表 (3D 重叠选择 / 投影重叠选择共用同一套样式)
+function buildPickListHTML(list, labelFront) {
+    return list.map((m, i) => {
+        const d = m.userData;
+        const col = cssColor(state.atoms[d.atom] && state.atoms[d.atom].color, '#cccccc');
+        return `<div class="pick-item" data-pick="${i}">
+            <span class="pick-dot" style="background:${col}"></span>
+            <span class="pick-name" style="color:var(--primary-color);">${d.atom}</span>
+            <span class="pick-coord">分数坐标 (${d.frac.map(v=>v.toFixed(3)).join(', ')})</span>
+            <span class="pick-depth">${i === 0 ? (labelFront || '最前') : '第 ' + (i + 1) + ' 层'}</span>
+        </div>`;
+    }).join('');
+}
+
+function chooseAtomModal(list, title, onChoose) {
+    const html = `<div class="ip-note" style="margin-bottom:10px;">该视线方向上有 ${list.length} 个原子 (前面的球挡住了后面的), 请选择要对哪一个操作:</div>`
+        + buildPickListHTML(list);
+    const body = _openModal(title, html, [{ text: '取消' }]);
+    body.querySelectorAll('[data-pick]').forEach(el => {
+        el.onclick = () => {
+            const idx = parseInt(el.dataset.pick, 10);
+            closeModal();
+            onChoose(list[idx]);
+        };
+    });
+}
+
+// 对某一个原子执行当前交互模式的动作 (设原点 / 挖空穴 / 替换)
+function applyAtomAction(mesh) {
+    if(!mesh) return;
+    const data = mesh.userData;
+
+    if(state.interactionMode === 'setOrigin') {
+        state.originIndex = data.index;
+        state.axes.origin = [...data.frac];
+        document.getElementById('originLabel').innerText = `${data.atom} (${formatFracUser(data.frac, true)})`;
+        showModal('原点已设置', `已将 ${data.atom} 设为坐标原点 (分数坐标 ${formatFracUser(data.frac)}),坐标轴与原子坐标显示均已切换到新坐标系。`);
+        setInteractionMode('view');
+        generateCrystal();
+        return;
+    }
+
+    if(state.interactionMode === 'vacancy') {
+        // 同一个格点会在边界处补出多个显示副本 (0 与 1 处各一个球), 它们是同一个原子,
+        // 一起删掉才不会出现"删了前面那个, 后面还留一个"的怪相
+        congruentSites(data.frac).forEach(m => {
+            m.visible = false;
+            state.persistentModifications[m.userData.modKey] = { type: 'vacancy' };
+        });
+        showModal('已制造空穴', `${data.atom} (${formatFracUser(data.frac)}) 及其边界副本已删除,更新晶胞后仍会保留。`);
+        return;
+    }
+
+    if(state.interactionMode === 'replace' || state.interactionMode === 'dope') {
+        const target = document.getElementById('replaceTargetSelect').value;
+        if(!target) { showModal('提示', '请先在左栏选择要替换成的原子'); return; }
+        const newAtomData = state.atoms[target];
+        if(!newAtomData) { showModal('提示', '目标原子不存在，请先在原子库中添加'); return; }
+        // 用原子本身的类型实时算半径, 不读旧几何参数:
+        // 切换过"空间填充"开关/上次替换后, mesh 当前的几何半径并不是该原子应有的半径
+        const newRadius = visualRadius(newAtomData, state.is3dSpaceFilling);
+        const oldName = data.atom;
+        const oldFrac = data.frac;
+        // 颜色 + 半径同步更新 (重建球体几何, 只改 color 会出现"变了颜色但大小不变")
+        // 同一格点的所有边界副本一起改, 否则晶胞里同一个角会出现一半 Na 一半 Cl
+        congruentSites(oldFrac).forEach(m => {
+            m.material.color.set(newAtomData.color);
+            m.userData.atom = target;
+            m.geometry.dispose();
+            m.geometry = new THREE.SphereGeometry(newRadius, 32, 32);
+            state.persistentModifications[m.userData.modKey] = { type: 'replace', atom: target };
+        });
+        // 提示里写清楚"原来的原子"和"替换后的原子", 同类原子替换时也不会出现"已将C替换为C"的歧义
+        const act = (state.interactionMode === 'dope') ? '掺杂替换' : '替换';
+        if(oldName === target) {
+            showModal(`${act}完成`, `点到的这个原子本身就是 ${oldName} (${formatFracUser(oldFrac)}),原子种类未变化。\n如果它挡住了后面的原子, 请换个角度再点, 或先在左栏切到"查看坐标"模式确认要改的是哪一个。`);
+        } else {
+            showModal(`${act}完成`, `已将 ${formatFracUser(oldFrac)} 处的 ${oldName} 替换为 ${target}。颜色与半径已同步更新,更新晶胞后仍会保留。`);
+        }
+    }
+}
+
+// 查看模式: 一条视线上有多个原子时让用户选一个看坐标
+function pickAtomAt(meshes) {
+    const list = uniqueAtoms(meshes);
+    if(list.length === 0) return;
+    if(list.length === 1) { showAtomInfo(list[0]); return; }
+
+    const html = `<div class="ip-note" style="margin-bottom:10px;">该视线方向上有 ${list.length} 个原子 (前面的球挡住了后面的)。请选择要查看哪一个:</div>`
+        + buildPickListHTML(list);
+    const body = _openModal('选择查看哪个原子', html, [{ text: '取消' }]);
+    body.querySelectorAll('[data-pick]').forEach(el => {
+        el.onclick = () => {
+            const idx = parseInt(el.dataset.pick, 10);
+            closeModal();
+            showAtomInfo(list[idx]);
+        };
+    });
+}
+
+// 找出与给定分数坐标属于同一格点的所有显示副本
+// 边界补全会把 0 处的原子再复制到 1 处, 两者相差整数, 是同一个原子
+function congruentSites(frac) {
+    const nearInt = (a, b) => Math.abs(a - b - Math.round(a - b)) < 0.02;
+    return atomMeshes.filter(m => {
+        const f = m.userData.frac;
+        return nearInt(f[0], frac[0]) && nearInt(f[1], frac[1]) && nearInt(f[2], frac[2]);
+    });
+}
+
+// 统一的坐标格式 (与用户自定义坐标系; 未设原点时即晶胞分数坐标)
+function formatCoord(v) {
+    const r = Math.round(v * 1000) / 1000;
+    return String(r);
+}
+function formatFracUser(frac) {
+    if(state.axes.origin) {
+        return '自定义 (' + userFrameCoord(frac).map(formatCoord).join(', ') + ')';
+    }
+    return '(' + frac.map(formatCoord).join(', ') + ')';
+}
+
+// 切换 3D 交互模式 (下拉框与状态同步)
+function setInteractionMode(mode) {
+    state.interactionMode = mode;
+    const sel = document.getElementById('interactionMode');
+    if(sel) sel.value = mode;
+    const box = document.getElementById('replaceOptions');
+    if(box) box.style.display = (mode === 'replace' || mode === 'dope') ? 'block' : 'none';
+}
+
+// 单个原子的完整信息 (模态框, 字号统一)
+function showAtomInfo(mesh) {
+    const d = mesh.userData;
+    const uf = userFrameCoord(d.frac);
+    const col = cssColor(state.atoms[d.atom] && state.atoms[d.atom].color, '#cccccc');
+    const rows = [
+        `<div class="ip-row"><b>分数坐标</b>：(${d.frac.map(formatCoord).join(', ')})</div>`
+    ];
+    if(state.axes.origin) {
+        rows.push(`<div class="ip-row"><b>自定义坐标系</b>：(${uf.map(formatCoord).join(', ')})</div>`);
+        rows.push(`<div class="ip-sub">原点位于 (${state.axes.origin.map(formatCoord).join(', ')})</div>`);
+    }
+    rows.push(`<div class="ip-sub">笛卡尔坐标：(${d.cart.map(v => v.toFixed(2)).join(', ')})</div>`);
+    if(d.outside) rows.push(`<div class="ip-sub">该原子位于晶胞边界外 (由边界补全生成)</div>`);
+    _openModal('原子信息', `
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+            <span style="width:18px; height:18px; border-radius:50%; background:${col}; border:1px solid rgba(0,0,0,0.25);"></span>
+            <span style="font-size:18px; font-weight:bold; color:var(--primary-color);">${d.atom}</span>
+        </div>
+        ${rows.join('')}
+    `, [{ text: '关闭', primary: true }]);
+}
+
+function updateThreeJSBackground() {
+    const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg-color').trim();
+    scene.background = new THREE.Color(bg);
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+}
+
+function onWindowResize() {
+    const container = document.getElementById('canvas3d');
+    camera.aspect = container.clientWidth / container.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(container.clientWidth, container.clientHeight);
+}
+
+// 让相机的取景范围自动包含"晶胞 + 球体", 而不是只按晶胞棱长猜一个距离
+// 只有晶胞参数变了才重新取景: 设原点/换坐标轴等操作不应该打断用户当前转到的角度
+function fitCameraToCell(geo, maxDim) {
+    const key = [state.crystalType].concat(
+        geo.corners.map(p => p.map(v => v.toFixed(3)).join(',')),
+        atomMeshes.map(m => (m.geometry.parameters ? m.geometry.parameters.radius.toFixed(3) : '0'))
+    ).join('|');
+    if(key === state.lastFitKey) return;
+    state.lastFitKey = key;
+
+    const box = new THREE.Box3();
+    geo.corners.forEach(p => box.expandByPoint(new THREE.Vector3(p[0], p[1], p[2])));
+    atomMeshes.forEach(m => {
+        const r = (m.geometry.parameters && m.geometry.parameters.radius) || 0;
+        box.expandByPoint(m.position.clone().addScalar(r));
+        box.expandByPoint(m.position.clone().addScalar(-r));
+    });
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    if(!isFinite(sphere.radius) || sphere.radius <= 1e-6) return;
+
+    const fov = THREE.MathUtils.degToRad(camera.fov);
+    const dist = sphere.radius / Math.sin(fov / 2) * 1.34;
+    // 默认斜四十五度角俯视: 一次能看到三个面, 立体感最好
+    const dir = new THREE.Vector3(1, 0.85, 1).normalize();
+    controls.target.copy(sphere.center);
+    camera.position.copy(sphere.center).addScaledVector(dir, dist);
+    camera.near = Math.max(0.001, dist * 0.01);
+    camera.far = dist * 40;
+    camera.updateProjectionMatrix();
+    controls.update();
+}
+
+function updateAtomSizes() {    atomMeshes.forEach(mesh => {
+        const atomDef = state.atoms[mesh.userData.atom];
+        if(!atomDef) return;
+        
+        const finalRadius = visualRadius(atomDef, state.is3dSpaceFilling);
+        
+        mesh.geometry.dispose();
+        mesh.geometry = new THREE.SphereGeometry(finalRadius, 32, 32);
+    });
+}
+
+// 原子显示半径: 空间填充按真实半径比例;
+// 球棍模式压缩大小原子的差距 (Ca/Cs 等大原子按周期律排序不变, 但显著缩小, 不再遮挡其他原子)
+// 关键: 半径必须相对"晶胞棱长"来定。原子半径单位是 Å, 晶胞在场景里的边长是 pA(可能是字母a=1, 也可能是 5.64nm)
+// state.worldPerAngstrom = 每个 Å 对应多少个场景单位, 由 computeWorldPerAngstrom() 在生成晶胞时算出
+function visualRadius(atomDef, spaceFilling) {
+    const wpa = state.worldPerAngstrom || 0.25;
+    // 半径上限: 原子球半径不超过参考棱长的 0.40 倍。
+    // 原子库里存的是"原子半径/金属半径"(Cs 2.6 Å), 遇到 CsCl 这类大阳离子会把晶胞整个糊住,
+    // 真实结构里该用的是离子半径(Cs⁺ ≈ 1.67 Å)。封顶后大小顺序仍按周期律, 但不会互相吞掉。
+    const refA = REF_LATTICE_ANGSTROM[state.crystalType] || 4.0;
+    const R = Math.min(atomDef.radius, refA * 0.40);
+    return R * wpa * (spaceFilling ? 0.92 : 0.45);
+}
+
+// 计算"每个 Å 对应多少场景单位"
+//  - 参数写的是数字(如 564 pm): 直接由单位决定(1 pm = 0.01 Å → 1 Å = 100 个 pm 单位)
+//  - 参数是字母(a/b/c): 用该晶体类型的参考棱长, 保证原子比例符合真实结构
+function computeWorldPerAngstrom(cell, geo) {
+    const raw = (document.getElementById('paramA').value || '').trim();
+    const num = parseFloat(raw);
+    const unit = document.getElementById('unitA').value || 'nm';
+    const perUnit = UNIT_TO_ANGSTROM[unit];
+    if(!isNaN(num) && perUnit) {
+        return 1 / perUnit;
+    }
+    const e1 = geo.e1, e2 = geo.e2, e3 = geo.e3;
+    const vol = Math.abs(
+        e1[0]*(e2[1]*e3[2]-e2[2]*e3[1]) -
+        e1[1]*(e2[0]*e3[2]-e2[2]*e3[0]) +
+        e1[2]*(e2[0]*e3[1]-e2[1]*e3[0])
+    );
+    const edgeWorld = vol > 1e-9 ? Math.cbrt(vol) : 1;
+    const refA = REF_LATTICE_ANGSTROM[cell.type] || 4.0;
+    return edgeWorld / refA;
+}
+
+// 晶胞三个基向量的笛卡尔表示 (与 generateCrystal 的 fracToCart 一致), 供点击空白处掺杂时逆变换
+function cellBasis(cell) {
+    if(cell.isHex) {
+        return {
+            e1: [cell.pHex, 0, 0],
+            e2: [cell.pHex*Math.cos(Math.PI/3), 0, cell.pHex*Math.sin(Math.PI/3)],
+            e3: [0, cell.pC, 0]
+        };
+    }
+    if(cell.type === 'triclinic') {
+        const cosG = Math.cos(cell.gamma), cosA = Math.cos(cell.alpha), cosB = Math.cos(cell.beta), sinG = Math.sin(cell.gamma);
+        const vol = cell.pA*cell.pB*cell.pC * Math.sqrt(1 - cosA*cosA - cosB*cosB - cosG*cosG + 2*cosA*cosB*cosG);
+        return {
+            e1: [cell.pA, 0, 0],
+            e2: [cell.pB*cosG, cell.pB*sinG, 0],
+            e3: [cell.pC*cosB, cell.pC*(cosA - cosB*cosG)/sinG, vol/(cell.pA*cell.pB*sinG)]
+        };
+    }
+    return { e1: [cell.pA, 0, 0], e2: [0, cell.pB, 0], e3: [0, 0, cell.pC] };
+}
+
+// 笛卡尔坐标 → 分数坐标 (Cramer 法则解 cart = fx·e1 + fy·e2 + fz·e3)
+function cartToFrac(cart, cell) {
+    const b = cellBasis(cell);
+    const det = (a, b2, c) => a[0]*(b2[1]*c[2]-b2[2]*c[1]) - a[1]*(b2[0]*c[2]-b2[2]*c[0]) + a[2]*(b2[0]*c[1]-b2[1]*c[0]);
+    const D = det(b.e1, b.e2, b.e3);
+    if(Math.abs(D) < 1e-12) return null;
+    return [
+        det(cart, b.e2, b.e3) / D,
+        det(b.e1, cart, b.e3) / D,
+        det(b.e1, b.e2, cart) / D
+    ];
+}
+
+function parseParam(val) {
+    const num = parseFloat(val);
+    return isNaN(num) ? 1.0 : num;
+}
+
+function getCubicSymmetryOperations() {
+    const ops = [];
+    const perms = [[0,1,2], [0,2,1], [1,0,2], [1,2,0], [2,0,1], [2,1,0]];
+    const signs = [[1,1,1], [1,1,-1], [1,-1,1], [1,-1,-1], [-1,1,1], [-1,1,-1], [-1,-1,1], [-1,-1,-1]];
+    
+    perms.forEach(p => {
+        signs.forEach(s => {
+            ops.push([
+                [s[0] * (p[0]===0?1:0), s[0] * (p[0]===1?1:0), s[0] * (p[0]===2?1:0)],
+                [s[1] * (p[1]===0?1:0), s[1] * (p[1]===1?1:0), s[1] * (p[1]===2?1:0)],
+                [s[2] * (p[2]===0?1:0), s[2] * (p[2]===1?1:0), s[2] * (p[2]===2?1:0)]
+            ]);
+        });
+    });
+    return ops;
+}
+
+const CUBIC_OPS = getCubicSymmetryOperations();
+
+// 四方晶系 (4/mmm 点群): 沿 c 的四重轴 + 绕 c 转 90° 的置换
+const TETRA_OPS = (function(){
+    const ops = [];
+    const zOps = [[[1,0,0],[0,1,0],[0,0,1]], [[-1,0,0],[0,1,0],[0,0,1]], [[0,1,0],[-1,0,0],[0,0,1]], [[0,-1,0],[1,0,0],[0,0,1]]];
+    const mirrorZ = [[1,0,0],[0,1,0],[0,0,-1]];
+    zOps.forEach(op => {
+        const mirror = op.map(row => [row[0], row[1], -row[2]]);
+        ops.push(op); ops.push(mirror);
+    });
+    return ops;
+})();
+
+// 六方晶系: c 轴六重旋转 + 绕 c 的二次轴 (只取正六方点群, 分数坐标按六方轴系)
+const HEX_OPS = (function(){
+    const ops = [];
+    const rot = (n) => {
+        const th = n * Math.PI / 3, c = Math.round(Math.cos(th)), s = Math.round(Math.sin(th));
+        // (a1, a2) → (a1', a2') 在六方轴系下的整数形式
+        return [[c, -s], [s, c]];
+    };
+    for(let n = 0; n < 6; n++) {
+        const m = rot(n);
+        ops.push([[m[0][0], m[0][1], 0], [m[1][0], m[1][1], 0], [0,0,1]]);
+        ops.push([[m[0][0], m[0][1], 0], [m[1][0], m[1][1], 0], [0,0,-1]]);
+    }
+    // 绕 a/b 方向的二次轴 (六方里的 622 点群需要 12 个操作, 这里取 6 重 + 反演足够生成等效位置)
+    return ops;
+})();
+
+const ORTHO_OPS = [
+    [[1,0,0],[0,1,0],[0,0,1]], [[-1,0,0],[0,1,0],[0,0,1]], [[1,0,0],[0,-1,0],[0,0,1]], [[1,0,0],[0,1,0],[0,0,-1]],
+    [[-1,0,0],[0,-1,0],[0,0,1]], [[-1,0,0],[0,1,0],[0,0,-1]], [[1,0,0],[0,-1,0],[0,0,-1]], [[-1,0,0],[0,-1,0],[0,0,-1]]
+];
+
+const MONO_OPS = [
+    [[1,0,0],[0,1,0],[0,0,1]], [[-1,0,0],[0,1,0],[0,0,1]], [[-1,0,0],[0,-1,0],[0,0,1]], [[1,0,0],[0,-1,0],[0,0,1]]
+];
+
+const TRICLINIC_OPS = [[[1,0,0],[0,1,0],[0,0,1]]];
+
+const SYMMETRY_OPS = {
+    CUBIC_OPS, TETRA_OPS, HEX_OPS, ORTHO_OPS, MONO_OPS, TRICLINIC_OPS
+};
+
+// 按当前晶系展开等效点系 (只生成 1 个位置的晶系直接返回原坐标)
+function applySymmetryToCoord(frac) {
+    const sys = cellSystemOf(state.crystalType);
+    const ops = SYMMETRY_OPS[sys.symOps] || CUBIC_OPS;
+    const [x, y, z] = frac;
+    const uniqueCoords = new Set();
+    const result = [];
+    
+    ops.forEach(op => {
+        const nx = op[0][0]*x + op[0][1]*y + op[0][2]*z;
+        const ny = op[1][0]*x + op[1][1]*y + op[1][2]*z;
+        const nz = op[2][0]*x + op[2][1]*y + op[2][2]*z;
+        
+        const fx = ((nx % 1) + 1) % 1;
+        const fy = ((ny % 1) + 1) % 1;
+        const fz = ((nz % 1) + 1) % 1;
+        
+        const key = `${fx.toFixed(4)},${fy.toFixed(4)},${fz.toFixed(4)}`;
+        if(!uniqueCoords.has(key)) {
+            uniqueCoords.add(key);
+            result.push([fx, fy, fz]);
+        }
+    });
+    
+    return result;
+}
+
+// 每个晶系的参数约束: 返回实际生效的 a, b, c, α, β, γ
+function resolveCellParams(type) {
+    const sysKey = CELL_TYPE_SYSTEM[type] || 'cubic';
+    let pA = parseParam(document.getElementById('paramA').value);
+    let pB = parseParam(document.getElementById('paramB').value);
+    let pC = parseParam(document.getElementById('paramC').value);
+    let pHex = parseParam(document.getElementById('paramHex').value);
+    const deg = (id, def) => {
+        const v = parseFloat(document.getElementById(id).value);
+        return isNaN(v) ? def : v;
+    };
+    let degA = 90, degB = 90, degG = 90;
+
+    if(sysKey === 'cubic') {
+        pB = pA; pC = pA;
+    } else if(sysKey === 'tetragonal') {
+        pB = pA;
+    } else if(sysKey === 'hexagonal') {
+        pB = pHex;                     // 六棱柱: b = 六边形棱长
+        degG = 120;
+        // 高度没填具体数值时, 用该结构的理想 c/a 比例给出高度,
+        // 否则六方晶胞会被画成 c = a 的薄片 (石墨/冰/镁的真实 c/a 差得很远)
+        const cRaw = String(document.getElementById('paramC').value || '').trim();
+        const cNum = parseFloat(cRaw);
+        if(cRaw === '' || isNaN(cNum)) {
+            pC = pHex * (HEX_C_OVER_A[type] || 1.633);
+        } else {
+            pC = Math.max(cNum, 1e-6);
+        }
+    } else if(sysKey === 'monoclinic') {
+        degB = deg('angleBeta', 99);
+        if(Math.abs(degB - 90) < 0.5) degB = 99;   // 单斜必须 β ≠ 90°
+    } else if(sysKey === 'triclinic') {
+        degA = deg('angleAlpha', 80); degB = deg('angleBeta', 75); degG = deg('angleGamma', 70);
+        if(anglesLegal(90, 90, 90) && !anglesLegal(degA, degB, degG)) {
+            degG = 180 - degA - degB + 20;        // 非法组合给一个兜底值
+        }
+    } else { // orthorhombic
+        degA = degB = degG = 90;
+    }
+
+    // 角度必须构成合法晶胞, 否则三根轴长度为 0, 原子全部塌陷到原点
+    if(!anglesLegal(degA, degB, degG)) {
+        const fix = (v) => Math.max(20, Math.min(160, v));
+        degA = fix(degA); degB = fix(degB); degG = fix(degG);
+        if(!anglesLegal(degA, degB, degG)) { degA = 90; degB = 90; degG = 90; }
+    }
+
+    return {
+        sysKey,
+        type,
+        pA, pB, pC, pHex,
+        alpha: degA * Math.PI / 180,
+        beta: degB * Math.PI / 180,
+        gamma: degG * Math.PI / 180,
+        degAlpha: degA, degBeta: degB, degGamma: degG,
+        isHex: sysKey === 'hexagonal',
+        isTriclinicLike: sysKey === 'triclinic' || sysKey === 'monoclinic'
+    };
+}
+
+// 由晶胞参数得到三个基向量 (统一入口: 画边框 / 定原子位置 / 建投影面 都用它)
+function cellGeometry(cell) {
+    const { pA, pB, pC, alpha, beta, gamma } = cell;
+    if(cell.isHex) {
+        // 六方: 六边形铺在 x-z 平面, 高度沿 y (与画边框一致)
+        const a = cell.pHex;
+        const e1 = [a, 0, 0];
+        const e2 = [a*Math.cos(Math.PI/3), 0, a*Math.sin(Math.PI/3)];
+        const e3 = [0, pC, 0];
+        // 真正的六棱柱: 正六边形截面 (外接圆半径 = 棱长 a), 中心取菱形晶胞的中心,
+        // 这样 12 个顶点 + 18 条棱, 不会再画成"歪的平行六面体"
+        const cx = (e1[0] + e2[0]) / 2, cz = (e1[2] + e2[2]) / 2;
+        const ring = [];
+        for(let k = 0; k < 6; k++) {
+            const th = k * Math.PI / 3;
+            ring.push([cx + a*Math.cos(th), 0, cz + a*Math.sin(th)]);
+        }
+        const corners = ring.map(p => [p[0], 0, p[2]]).concat(ring.map(p => [p[0], pC, p[2]]));
+        const edges = [];
+        for(let k = 0; k < 6; k++) {
+            edges.push([k, (k+1)%6]);            // 下底六边形
+            edges.push([k+6, (k+1)%6+6]);        // 上底六边形
+            edges.push([k, k+6]);                // 侧棱
+        }
+        return { e1, e2, e3, corners, edges, ring, isHex: true };
+    }
+    const cosG = Math.cos(gamma), cosA = Math.cos(alpha), cosB = Math.cos(beta), sinG = Math.sin(gamma);
+    const g = Math.sqrt(Math.max(0, 1 - cosA*cosA - cosB*cosB - cosG*cosG + 2*cosA*cosB*cosG));
+    const vol = pA*pB*pC*g;
+    const e1 = [pA, 0, 0];
+    const e2 = [pB*cosG, pB*sinG, 0];
+    const e3 = [pC*cosB, pC*(cosA - cosB*cosG)/(sinG || 1e-9), vol/(pA*pB*(sinG || 1e-9))];
+    const corners = [
+        [0,0,0], e1, e2, [e1[0]+e2[0], e1[1]+e2[1], e1[2]+e2[2]],
+        e3, [e1[0]+e3[0], e1[1]+e3[1], e1[2]+e3[2]], [e2[0]+e3[0], e2[1]+e3[1], e2[2]+e3[2]],
+        [e1[0]+e2[0]+e3[0], e1[1]+e2[1]+e3[1], e1[2]+e2[2]+e3[2]]
+    ];
+    const edges = [[0,1],[1,3],[3,2],[2,0],[4,5],[5,7],[7,6],[6,4],[0,4],[1,5],[2,6],[3,7]];
+    return { e1, e2, e3, corners, edges, isHex: false };
+}
+
+// 分数坐标 → 笛卡尔坐标 (用基向量线性组合, 任何晶系同一公式)
+function fracToCartGeo(f, geo) {
+    return [
+        f[0]*geo.e1[0] + f[1]*geo.e2[0] + f[2]*geo.e3[0],
+        f[0]*geo.e1[1] + f[1]*geo.e2[1] + f[2]*geo.e3[1],
+        f[0]*geo.e1[2] + f[1]*geo.e2[2] + f[2]*geo.e3[2]
+    ];
+}
+
+function generateCrystal() {
+    atomMeshes.forEach(m => scene.remove(m));
+    bondLines.forEach(l => scene.remove(l));
+    cellEdges.forEach(l => scene.remove(l));
+    if(axesHelper) scene.remove(axesHelper);
+    if(axesGroup) {
+        scene.remove(axesGroup);
+        axesGroup.traverse(o => {
+            if(o.geometry) o.geometry.dispose();
+            if(o.material && o.material.map) o.material.map.dispose();
+            if(o.material) o.material.dispose();
+        });
+    }
+    
+    atomMeshes = []; bondLines = []; cellEdges = [];
+    
+    const type = state.crystalType;
+    // 1. 按晶系把 a/b/c 与 α/β/γ 规整成合法晶胞参数 (三斜/单斜/六方各有约束)
+    const cell = resolveCellParams(type);
+    const geo = cellGeometry(cell);
+    const { pA, pB, pC, pHex, alpha, beta, gamma, isHex } = cell;
+
+    // 2. 画晶胞边框 (任何晶系都用统一的三基向量来画)
+    drawCellFrame(geo);
+
+    // 3. 记录当前晶胞几何信息, 供坐标换算与投影面使用
+    state.lastCell = cell;
+    state.lastGeo = geo;
+    // 原子半径(Å) → 场景单位 的换算比例, 必须在建球之前算好
+    state.worldPerAngstrom = computeWorldPerAngstrom(cell, geo);
+    const fracToCart = (f) => fracToCartGeo(f, geo);
+    // 晶格基向量 (用于坐标轴方向设置)
+    const basis = {
+        e1: new THREE.Vector3(...geo.e1),
+        e2: new THREE.Vector3(...geo.e2),
+        e3: new THREE.Vector3(...geo.e3)
+    };
+
+    let finalAtoms = [...state.positions];
+    
+    const sysKey = cell.sysKey;
+    const expandBoundary = (sysKey !== 'triclinic');
+    
+    // 4. 按当前晶系的对称操作展开自定义分数坐标 (三斜只有恒等操作, 就是它自己)
+    if(document.getElementById('applySymmetry').checked && sysKey !== 'triclinic') {
+        const symmetricAtoms = [];
+        finalAtoms.forEach(a => {
+            if(a.type === 'custom') {
+                const equivs = applySymmetryToCoord(a.frac);
+                equivs.forEach(eqFrac => {
+                    symmetricAtoms.push({...a, frac: eqFrac, type: 'sym_generated'});
+                });
+            } else {
+                symmetricAtoms.push(a);
+            }
+        });
+        finalAtoms = symmetricAtoms;
+    }
+
+    // 5. 视觉边界扩展 (Visual Boundary Expansion)
+    // 分子晶体 (noBoundaryExpand) 不做边界补全：补出的孤立原子会脱离所属分子
+    // 三斜晶胞不补全: 三根轴互相斜交, 补出来的"镜像"球会看起来散落在晶胞外
+    let visualAtoms = [];
+
+    if (expandBoundary && !(PRESETS[type] && PRESETS[type].noBoundaryExpand)) {
+        finalAtoms.forEach(a => {
+            let expansions = [a];
+            const [x, y, z] = a.frac;
+            
+            const isZero = (v) => Math.abs(v) < 0.05 || Math.abs(v - 1) < 0.05;
+            
+            // X轴扩展
+            if (isZero(x)) {
+                let newExps = [];
+                expansions.forEach(exp => {
+                    let copy = {...exp, frac: [...exp.frac]};
+                    copy.frac[0] = x < 0.5 ? 1 : 0; 
+                    newExps.push(copy);
+                });
+                expansions = [...expansions, ...newExps];
+            }
+            // Y轴扩展
+            if (isZero(y)) {
+                let newExps = [];
+                expansions.forEach(exp => {
+                    let copy = {...exp, frac: [...exp.frac]};
+                    copy.frac[1] = y < 0.5 ? 1 : 0;
+                    newExps.push(copy);
+                });
+                expansions = [...expansions, ...newExps];
+            }
+            // Z轴扩展
+            if (isZero(z)) {
+                let newExps = [];
+                expansions.forEach(exp => {
+                    let copy = {...exp, frac: [...exp.frac]};
+                    copy.frac[2] = z < 0.5 ? 1 : 0;
+                    newExps.push(copy);
+                });
+                expansions = [...expansions, ...newExps];
+            }
+            
+            visualAtoms.push(...expansions);
+        });
+    } else {
+        visualAtoms = finalAtoms;
+    }
+
+    // 3. 去重
+    const unique = [];
+    const seen = new Set();
+    visualAtoms.forEach(a => {
+        const normFrac = a.frac.map(v => {
+            if (Math.abs(v - 1) < 0.05) return 1.0;
+            if (Math.abs(v) < 0.05) return 0.0;
+            return v;
+        });
+        const key = `${a.atom}-${normFrac.map(x=>x.toFixed(2)).join(',')}`;
+        if(!seen.has(key)) { 
+            seen.add(key); 
+            unique.push({...a, frac: normFrac}); 
+        }
+    });
+    finalAtoms = unique;
+
+    // 4. 创建原子网格
+    // 修改记录 (替换/掺杂/空穴) 以 "原始原子名@分数坐标" 为键, 与数组下标无关,
+    // 这样后续增删位置导致下标偏移时, 已有的修改仍然精确落在原原子上
+    finalAtoms.forEach((aData, idx) => {
+        const modKey = aData.atom + '@' + aData.frac.map(v=>v.toFixed(3)).join(',');
+        if(state.persistentModifications[modKey]?.type === 'vacancy') return;
+
+        const atomName = state.persistentModifications[modKey]?.atom || aData.atom;
+        const atomDef = state.atoms[atomName];
+        if(!atomDef) return;
+
+        const cart = fracToCart(aData.frac);
+
+        const finalRadius = visualRadius(atomDef, state.is3dSpaceFilling);
+
+        const geometry = new THREE.SphereGeometry(finalRadius, 32, 32);
+        // 玻璃质感：高光泽镜面高光，参照实体分子模型风格
+        const material = new THREE.MeshPhongMaterial({
+            color: atomDef.color,
+            shininess: 160,
+            specular: 0xaaaaaa,
+            transparent: true,
+            opacity: 0.97
+        });
+        
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.set(cart[0], cart[1], cart[2]);
+        // 晶胞外原子 (分数坐标 <0 或 >1): 3D 图照常显示, 投影图可由勾选框控制
+        const outside = aData.frac.some(v => v < -0.001 || v > 1.001);
+        mesh.userData = { index: idx, atom: atomName, frac: aData.frac, cart: cart, outside: outside, modKey: modKey };
+        
+        scene.add(mesh);
+        atomMeshes.push(mesh);
+    });
+
+    // 5. 绘制化学键 (bondCut: 分子晶体如 CO2/SiO2 需要更小的阈值, 避免画出分子间/次近邻假键)
+    // 键绘制为半透明玻璃质感圆柱棒 (参照实体分子模型)
+    const bondCutRatio = (PRESETS[type] && PRESETS[type].bondCut) ? PRESETS[type].bondCut : 0.6;
+    const noHomoBonds = PRESETS[type] && PRESETS[type].noHomoBonds; // 分子晶体: 同种元素间不画键 (避免相邻分子 O-O 假键)
+    const maxBondDist = Math.max(pA, pB, pC) * bondCutRatio;
+    const maxDim = Math.max(pA, pB, pC, pHex);
+    const bondRadius = maxDim * (state.is3dSpaceFilling ? 0.007 : 0.014);
+    const bondMaterial = new THREE.MeshPhongMaterial({
+        color: 0xd6dde3, transparent: true, opacity: 0.35,
+        shininess: 120, specular: 0xffffff, depthWrite: false
+    });
+    const upVec = new THREE.Vector3(0, 1, 0);
+    for(let i=0; i<atomMeshes.length; i++) {
+        for(let j=i+1; j<atomMeshes.length; j++) {
+            if(noHomoBonds && atomMeshes[i].userData.atom === atomMeshes[j].userData.atom) continue;
+            const p1 = atomMeshes[i].position, p2 = atomMeshes[j].position;
+            const d = p1.distanceTo(p2);
+            if(d < maxBondDist && d > 0.01) {
+                const geom = new THREE.CylinderGeometry(bondRadius, bondRadius, d, 12, 1, true);
+                const rod = new THREE.Mesh(geom, bondMaterial);
+                rod.position.copy(p1).lerp(p2, 0.5);
+                rod.quaternion.setFromUnitVectors(upVec, new THREE.Vector3().subVectors(p2, p1).normalize());
+                scene.add(rod);
+                bondLines.push(rod);
+            }
+        }
+    }
+
+    // 6. 绘制自定义 XYZ 坐标轴 (显示开关 / 每根轴方向 / 原点 均可在左栏设置)
+    axesGroup = new THREE.Group();
+    if(state.axes.show) {
+        const originFrac = state.axes.origin || [0, 0, 0];
+        const originCart = fracToCart(originFrac);
+        const dirVec = (s) => {
+            const sign = String(s).startsWith('-') ? -1 : 1;
+            const v = ({ a: basis.e1, b: basis.e2, c: basis.e3 })[String(s).replace(/[^abc]/g, '')] || basis.e1;
+            return v.clone().multiplyScalar(sign).normalize();
+        };
+        const axisDefs = [
+            { key: 'xDir', color: 0xe06633, label: 'X' },
+            { key: 'yDir', color: 0x3aa757, label: 'Y' },
+            { key: 'zDir', color: 0x4a7fd4, label: 'Z' }
+        ];
+        axisDefs.forEach(def => {
+            const dir = dirVec(state.axes[def.key]);
+            const len = maxDim * 1.25;
+            const arrow = new THREE.ArrowHelper(
+                dir,
+                new THREE.Vector3(originCart[0], originCart[1], originCart[2]),
+                len, def.color, maxDim * 0.07, maxDim * 0.035
+            );
+            axesGroup.add(arrow);
+            const lbl = makeAxisLabel(def.label, '#' + def.color.toString(16).padStart(6, '0'), maxDim * 0.10);
+            lbl.position.set(
+                originCart[0] + dir.x * (len + maxDim * 0.14),
+                originCart[1] + dir.y * (len + maxDim * 0.14),
+                originCart[2] + dir.z * (len + maxDim * 0.14)
+            );
+            axesGroup.add(lbl);
+        });
+    }
+    scene.add(axesGroup);
+
+    camera.position.set(maxDim*2, maxDim*2, maxDim*2);
+    controls.target.set(maxDim/2, maxDim/2, maxDim/2);
+    controls.update();
+    fitCameraToCell(geo, maxDim);
+
+    renderProjection(state.projView);
+    updateProjectionPlane();
+}
+
+// 投影视角代码徽章 (按钮已是直白名称, 这里只补充晶体学方向 [hkl])
+const PROJ_VIEW_CODES = {
+    top: 'view [001] · 沿 c 轴',
+    front: 'view [100] · 沿 a 轴',
+    side: 'view [010] · 沿 b 轴',
+    diag: 'view [111] · 体对角线',
+    fdiag: 'view [110] · 面对角线'
+};
+function planeCodeOf(dir) {
+    // 分数方向 → 密勒指数写法: 负号放在数字前面, 如 [1,-1,0] → "1-10"
+    return (dir || [1,1,0]).map(v => {
+        const n = Math.round(v);
+        return n < 0 ? '-' + Math.abs(n) : String(n);
+    }).join('');
+}
+function updateProjViewCode() {
+    const el = document.getElementById('projViewCode');
+    if (!el) return;
+    if (state.projView === 'fdiag') {
+        const code = planeCodeOf(state.fdiagDir);
+        el.innerText = `view [${code}] · 对角面 (${code})`;
+        return;
+    }
+    el.innerText = PROJ_VIEW_CODES[state.projView] || ('view ' + state.projView);
+}
+// 旧版浮板已改为模态框, 保留空函数避免旧调用点报错
+function hideProjTooltip() {}
+
+// 画晶胞边框: 立方/四方/正交/单斜/三斜/六方 统一用三个基向量生成的 8 个顶点 + 12 条棱
+function drawCellFrame(geo) {
+    const material = new THREE.LineBasicMaterial({ color: themeNumber('--cell-line', 0xcc0000), linewidth: 2 });
+    // 六方晶胞是 12 顶点 / 18 条棱的六棱柱, 立方等是 8 顶点 / 12 条棱
+    const edges = geo.edges || [[0,1],[1,3],[3,2],[2,0],[4,5],[5,7],[7,6],[6,4],[0,4],[1,5],[2,6],[3,7]];
+    const corners = geo.corners.map(p => new THREE.Vector3(p[0], p[1], p[2]));
+    edges.forEach(([i, j]) => {
+        const geom = new THREE.BufferGeometry().setFromPoints([corners[i], corners[j]]);
+        const line = new THREE.Line(geom, material);
+        scene.add(line);
+        cellEdges.push(line);
+    });
+}
+
+// 读取主题色的数值形式 (0xrrggbb), 用于 THREE 材质
+function themeNumber(cssVar, fallback) {    const c = getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim();
+    const rgb = c ? parseColorRGB(c) : null;
+    if (!rgb) return fallback;
+    return (Math.round(rgb[0]) << 16) | (Math.round(rgb[1]) << 8) | Math.round(rgb[2]);
+}
+
+// ===================== 3D 投影面 (条纹半透明, 随晶胞一起转动 / 缩放) =====================
+// 以当前投影视角定义: 法向 = 观察方向, 屏幕右 = 右向量, 屏幕上 = 上向量
+// 这样"从某个方向看"时, 投影面正好垂直于视线, 看到的透视图= 下方的投影图
+function getProjectionFrame(viewType) {
+    const cell = state.lastCell || resolveCellParams(state.crystalType);
+    const geo = state.lastGeo || cellGeometry(cell);
+    const isHexType = !!cell.isHex;
+    const G = (n) => {
+        // 分数坐标方向 → 笛卡尔方向 (任何晶系通用)
+        const v = fracToCartGeo([n[0], n[1], n[2]], geo);
+        return v;
+    };
+    const norm = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return v.map(x => x / l); };
+    const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+    const dot = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+
+    // 屏幕"上"方向的参考: 六方取 c 轴方向, 其余取笛卡尔 y
+    const upRef = isHexType ? G([0, 0, 1]) : [0, 1, 0];
+    let dirFrac;
+    if(viewType === 'front') dirFrac = [1, 0, 0];
+    else if(viewType === 'side') dirFrac = [0, 1, 0];
+    else if(viewType === 'diag') dirFrac = [1, 1, 1];
+    else if(viewType === 'fdiag') dirFrac = state.fdiagDir || [1, 1, 0];
+    else dirFrac = [0, 0, 1];
+
+    // dirFrac 是"分数坐标方向", 必须经晶胞基向量换成笛卡尔方向再用;
+    // 直接对 [0,0,1] 归一化只在立方晶系碰巧正确, 六方晶系里 c 轴是 y 方向, 会看错面
+    let dir = norm(G(dirFrac));         // 观察方向 (从晶胞指向观察者)
+    let up = upRef;
+    if(Math.abs(dot(norm(up), dir)) > 0.95) up = isHexType ? G([1, 0, 0]) : [0, 1, 0];
+    let right = cross(up, norm(dir));    // 屏幕右方向
+    if(Math.hypot(...right) < 1e-6) right = cross([1, 0, 0], dir);
+    right = norm(right);
+    // (right, projUp, dir) 必须是右手系, 否则投影面用 Matrix4.makeBasis 建出来会翻面
+    const projUp = norm(cross(dir, right));
+
+    // 把晶胞 8 个顶点投影到 (right, projUp, dir) 坐标系, 取包围矩形 → 投影面的范围和位置
+    const pts = geo.corners.map(p => [dot(p, right), dot(p, projUp), dot(p, dir)]);
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), zs = pts.map(p => p[2]);
+    const xs0 = Math.min(...xs), xs1 = Math.max(...xs);
+    const ys0 = Math.min(...ys), ys1 = Math.max(...ys);
+    const zs0 = Math.min(...zs), zs1 = Math.max(...zs);
+    const padU = (xs1 - xs0) * 0.10 + 1e-6;
+    const padV = (ys1 - ys0) * 0.10 + 1e-6;
+    // 平面上还要留出原子球的厚度: 顶点处的球会沿观察方向凸出 zs1 之外,
+    // 只按"晶胞顶点"算深度会让球穿出平面把整块面挡住(体对角线视角最明显, 看起来就像"没画平面")
+    let maxR = 0;
+    atomMeshes.forEach(m => { if(m.visible && m.geometry && m.geometry.parameters) maxR = Math.max(maxR, m.geometry.parameters.radius || 0); });
+    const span = Math.max(xs1 - xs0, ys1 - ys0, 1e-6);
+    // 面对角线: 投影面就放在晶胞正中央、沿对角面穿过去, 并且比晶胞更大 (像一刀切在晶胞中间);
+    // 其它视角: 放在晶胞最外侧 + 一层球半径 + 一点空隙处, 保证不会被原子吞掉
+    const isFaceDiag = (viewType === 'fdiag');
+    const planeC = isFaceDiag ? (zs0 + zs1) / 2 : zs1 + maxR * 1.0 + span * 0.06;
+    const mag = isFaceDiag ? 1.55 : 1.12;
+    const center = [0, 1, 2].map(i => right[i]*(xs0+xs1)/2 + projUp[i]*(ys0+ys1)/2 + dir[i]*planeC);
+    return {
+        dir, right, projUp, center,
+        width: ((xs1 - xs0) + 2*padU) * mag,
+        height: ((ys1 - ys0) + 2*padV) * mag,
+        frustumTop: ys1 + padV, frustumBottom: ys0 - padV
+    };
+}
+
+// 用 canvas 画一张条纹贴图 (斜向条纹 + 细网格), 颜色取自主题色, 便于观察又不会挡视线
+function makeStripeTexture(color) {
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 256;
+    const g = c.getContext('2d');
+    g.clearRect(0, 0, 256, 256);
+    g.fillStyle = color;
+    g.globalAlpha = 0.07;
+    g.fillRect(0, 0, 256, 256);
+    g.globalAlpha = 0.42;
+    g.strokeStyle = color;
+    g.lineWidth = 7;
+    for(let i = -256; i < 512; i += 42) {
+        g.beginPath();
+        g.moveTo(i, 0);
+        g.lineTo(i + 256, 256);
+        g.stroke();
+    }
+    g.globalAlpha = 0.28;
+    g.lineWidth = 2;
+    g.strokeStyle = color;
+    g.strokeRect(3, 3, 250, 250);
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(2, 2);
+    return tex;
+}
+
+// 删除旧的投影面
+function clearProjectionPlane() {
+    if(projPlaneGroup) {
+        scene.remove(projPlaneGroup);
+        projPlaneGroup.traverse(o => {
+            if(o.geometry) o.geometry.dispose();
+        });
+        if(projPlaneGroup.userData.tex) projPlaneGroup.userData.tex.dispose();
+        projPlaneGroup = null;
+    }
+}
+
+// 根据当前投影视角重建投影面: 半透明条纹平面 + 边框 + 四角外框线
+function updateProjectionPlane() {
+    clearProjectionPlane();
+    if(!state.showProjectionPlane || !state.lastGeo) return;
+    const activeBtn = document.querySelector('.proj-btn.active');
+    const viewType = activeBtn ? activeBtn.dataset.view : 'top';
+    if(viewType === 'diag') return;   // 体对角线视角不渲染投影面
+    const fr = getProjectionFrame(viewType);
+    const matColor = cssColor(getComputedStyle(document.documentElement).getPropertyValue('--primary-color'), '#4a7fd4');
+    const tex = makeStripeTexture(matColor);
+
+    const group = new THREE.Group();
+    const planeGeo = new THREE.PlaneGeometry(fr.width, fr.height);
+    const planeMat = new THREE.MeshBasicMaterial({
+        map: tex, transparent: true, opacity: 0.55, side: THREE.DoubleSide,
+        depthWrite: false, alphaTest: 0.01, color: 0xffffff
+    });
+    const plane = new THREE.Mesh(planeGeo, planeMat);
+    plane.position.set(fr.center[0], fr.center[1], fr.center[2]);
+    // 让平面的法向指向观察方向, 上方向 = projUp
+    const basisMat = new THREE.Matrix4().makeBasis(
+        new THREE.Vector3(...fr.right),
+        new THREE.Vector3(...fr.projUp),
+        new THREE.Vector3(...fr.dir)
+    );
+    plane.quaternion.setFromRotationMatrix(basisMat);
+    group.add(plane);
+
+    // 边框 (实线) + 四角框线, 让"投影面"的朝向和尺寸一眼可辨
+    const hw = fr.width / 2, hh = fr.height / 2;
+    const borderPts = [
+        [-hw,-hh,0], [hw,-hh,0], [hw,hh,0], [-hw,hh,0], [-hw,-hh,0]
+    ].map(p => new THREE.Vector3(p[0], p[1], 0));
+    const borderGeo = new THREE.BufferGeometry().setFromPoints(borderPts);
+    const borderMat = new THREE.LineBasicMaterial({ color: new THREE.Color(matColor), transparent: true, opacity: 0.95 });
+    const border = new THREE.Line(borderGeo, borderMat);
+    plane.add(border);
+
+    const k = Math.min(fr.width, fr.height) * 0.12;
+    const cornerSegs = [
+        [[-hw,-hh,0],[-hw+k,-hh,0]], [[-hw,-hh,0],[-hw,-hh+k,0]],
+        [[hw,-hh,0],[hw-k,-hh,0]],   [[hw,-hh,0],[hw,-hh+k,0]],
+        [[hw,hh,0],[hw-k,hh,0]],     [[hw,hh,0],[hw,hh-k,0]],
+        [[-hw,hh,0],[-hw+k,hh,0]],   [[-hw,hh,0],[-hw,hh-k,0]]
+    ];
+    const cornerMat = new THREE.LineBasicMaterial({ color: new THREE.Color(matColor), transparent: true, opacity: 1 });
+    cornerSegs.forEach(seg => {
+        const g = new THREE.BufferGeometry().setFromPoints(seg.map(p => new THREE.Vector3(p[0], p[1], p[2])));
+        plane.add(new THREE.Line(g, cornerMat));
+    });
+
+    // 投影面四角向晶胞方向的"视线连线", 体现"投影"关系
+    const lineMat = new THREE.LineDashedMaterial({ color: new THREE.Color(matColor), dashSize: fr.width*0.03, gapSize: fr.width*0.02, transparent: true, opacity: 0.45 });
+    const back = new THREE.Vector3(...fr.center).addScaledVector(new THREE.Vector3(...fr.dir), -Math.max(fr.width, fr.height) * 0.75);
+    [[-1,-1],[1,-1],[1,1],[-1,1]].forEach(([sx, sy]) => {
+        const p0 = new THREE.Vector3(...fr.center).addScaledVector(new THREE.Vector3(...fr.right), sx*hw).addScaledVector(new THREE.Vector3(...fr.projUp), sy*hh);
+        const p1 = back.clone().addScaledVector(new THREE.Vector3(...fr.right), sx*hw).addScaledVector(new THREE.Vector3(...fr.projUp), sy*hh);
+        const g = new THREE.BufferGeometry().setFromPoints([p0, p1]);
+        const ln = new THREE.Line(g, lineMat);
+        ln.computeLineDistances();
+        group.add(ln);
+    });
+
+    group.userData.tex = tex;
+    group.userData.viewType = viewType;
+    projPlaneGroup = group;
+    scene.add(group);
+}
+
+// 下方投影图: 用与 3D 投影面完全相同的坐标系, 保证"立体图里贴着投影面看过去"= 这张投影图
+function renderProjection(viewType) {
+    const canvas = document.getElementById('projCanvas');
+    const ctx = canvas.getContext('2d');
+    // 按设备像素比放大画布缓冲, 再整体缩放绘图坐标:
+    // 这样投影图里的圆和字在高分屏上不会发虚, 而所有坐标仍然用 CSS 像素计算(与点击位置一致)
+    const rect = canvas.getBoundingClientRect();
+    const cssW = Math.max(1, rect.width || canvas.parentElement.clientWidth);
+    const cssH = Math.max(1, rect.height || 220);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = cssW, h = cssH;
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    ctx.clearRect(0,0,w,h);
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-bg').trim();
+    ctx.fillRect(0,0,w,h);
+    canvas._projData = [];
+
+    if(atomMeshes.length === 0) return;
+
+    const fr = getProjectionFrame(viewType);
+    const viewDir = fr.dir, right = fr.right, projUp = fr.projUp;
+    const dot3 = (p, v) => p.x*v[0] + p.y*v[1] + p.z*v[2];
+
+    // 投影圆半径按该原子应有的显示半径换算 (不读几何参数, 边界补全的副本可能被缩放)
+    // 投影圆半径: 与 3D 里真正的球体半径一致(场景单位), 不再乘一堆经验系数
+    const baseR = (atomDef) => atomDef ? visualRadius(atomDef, state.isProjSpaceFilling) : 0.4;
+    const rList = Object.values(state.atoms).map(a => visualRadius(a, state.isProjSpaceFilling));
+    const rAvg = rList.length ? rList.reduce((a,b)=>a+b,0) / rList.length : 0.3;
+
+    const projected = atomMeshes.filter(m => m.visible && (state.showProjOutside || !m.userData.outside)).map(m => {
+        const atomDef = state.atoms[m.userData.atom];
+        return {
+            mesh: m,
+            x: dot3(m.position, right),
+            y: dot3(m.position, projUp),
+            depth: dot3(m.position, viewDir),
+            r: baseR(atomDef) || rAvg
+        };
+    });
+    // 由后往前画 (先画远的, 后画近的): 近处的大球会整块盖住后面的小球;
+    // 同一深度时小球先画、大球后画, 于是大球压在小球上面 —— 这就是"覆盖/同心圆"的视觉效果
+    projected.sort((a,b) => (b.depth - a.depth) || (a.r - b.r));
+
+    // 视野: 晶胞 + 所有原子 (含晶胞外补全的原子)
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    state.lastGeo.corners.forEach(p => {
+        const x = p[0]*right[0]+p[1]*right[1]+p[2]*right[2];
+        const y = p[0]*projUp[0]+p[1]*projUp[1]+p[2]*projUp[2];
+        minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    });
+    projected.forEach(p => {
+        minX = Math.min(minX, p.x - p.r); maxX = Math.max(maxX, p.x + p.r);
+        minY = Math.min(minY, p.y - p.r); maxY = Math.max(maxY, p.y + p.r);
+    });
+    const range = Math.max(maxX-minX, maxY-minY) || 1;
+    const scale = (Math.min(w,h) * 0.86) / range;
+    const offX = w/2 - (minX+maxX)/2 * scale;
+    const offY = h/2 + (minY+maxY)/2 * scale;
+
+    // 投影图里画出晶胞边框 (同一视角下的轮廓线), 便于和立体图对应
+    const edgeMat = getComputedStyle(document.documentElement).getPropertyValue('--cell-line').trim() || '#cc0000';
+    const cs = state.lastGeo.corners.map(p => ({
+        sx: (p[0]*right[0]+p[1]*right[1]+p[2]*right[2]) * scale + offX,
+        sy: -(p[0]*projUp[0]+p[1]*projUp[1]+p[2]*projUp[2]) * scale + offY
+    }));
+    ctx.save();
+    ctx.strokeStyle = edgeMat;
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = 1.5;
+    (state.lastGeo.edges || [[0,1],[1,3],[3,2],[2,0],[4,5],[5,7],[7,6],[6,4],[0,4],[1,5],[2,6],[3,7]]).forEach(([i,j]) => {
+        ctx.beginPath(); ctx.moveTo(cs[i].sx, cs[i].sy); ctx.lineTo(cs[j].sx, cs[j].sy); ctx.stroke();
+    });
+    ctx.restore();
+
+    projected.forEach(p => {
+        const sx = p.x * scale + offX;
+        const sy = -p.y * scale + offY;
+        // p.r 是场景单位的真实半径, 画到画布上必须乘 scale 才是像素半径
+        const pr = Math.max(p.r * scale, 0.6);
+        const colHex = p.mesh.material.color.getHexString();
+        const grad = ctx.createRadialGradient(sx - pr*0.3, sy - pr*0.3, pr*0.1, sx, sy, pr);
+        grad.addColorStop(0, lighten(colHex, 50));
+        grad.addColorStop(1, '#'+colHex);
+
+        ctx.beginPath();
+        ctx.arc(sx, sy, pr, 0, Math.PI*2);
+        ctx.fillStyle = grad;
+        // 完全不透明: 前面的球必须完整遮住后面的球, 不能靠半透明把两个颜色混在一起
+        ctx.globalAlpha = 1;
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+    });
+
+    canvas._projData = projected.map(p => ({
+        ...p,
+        sx: p.x * scale + offX,
+        sy: -p.y * scale + offY,
+        pr: Math.max(p.r * scale, 0.6)
+    }));
+}
+
+// 取元素最终生效的颜色 (模板里写的是 var(--primary-color), getComputedStyle 会解析成实际颜色)
+function cssColor(varOrColor, fallback) {
+    const v = String(varOrColor || '').trim();
+    if (v.startsWith('--')) {
+        const c = getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+        return c || fallback;
+    }
+    return v || fallback;
+}
+
+// 把任意 CSS 颜色解析成 [r,g,b] (支持 #rgb / #rrggbb / rgb() / 颜色关键字), 失败返回 null
+function parseColorRGB(col) {
+    const s = String(col || '').trim();
+    const m = s.match(/^#([0-9a-f]{3})$/i);
+    if (m) return [...m[1]].map(c => parseInt(c + c, 16));
+    const m6 = s.match(/^#([0-9a-f]{6})$/i);
+    if (m6) return [0, 2, 4].map(i => parseInt(m6[1].slice(i, i + 2), 16));
+    const mrgb = s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+    if (mrgb) return [mrgb[1], mrgb[2], mrgb[3]].map(Number);
+    const d = document.createElement('div');
+    d.style.color = s;
+    if (d.style.color === '') return null;
+    document.body.appendChild(d);
+    const c = getComputedStyle(d).color;
+    d.remove();
+    const m2 = c.match(/([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+    return m2 ? [m2[1], m2[2], m2[3]].map(Number) : null;
+}
+
+function shadeColor(col, amt) {
+    const rgb = parseColorRGB(col);
+    if (!rgb) return col;
+    return 'rgb(' + rgb.map(v => Math.max(0, Math.min(255, Math.round(v + amt)))).join(',') + ')';
+}
+
+function lighten(hex, percent) {
+    return shadeColor('#' + String(hex).replace(/^#/, ''), percent);
+}
+
+// 投影图点击: 同一 (x, y) 上重叠的原子先按"由前到后"排序,
+// 多于 1 个时弹出模态框让用户选, 避免为了看被挡住的原子去"掐缝"点击
+function handleProjectionClick(e) {
+    const canvas = document.getElementById('projCanvas');
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const data = canvas._projData;
+    if(!data || data.length === 0) return;
+
+    // 1. 先判断是否点中了某个原子 (允许 3px 容差)
+    let clicked = data.filter(p => {
+        const dx = p.sx - x;
+        const dy = p.sy - y;
+        return Math.sqrt(dx*dx + dy*dy) <= Math.max(p.pr || p.r, 4) + 3;
+    });
+
+    // 2. 没点中任何球体: 找最近的投影位置 (容差随球半径放大), 让重叠/贴边的位置也能点
+    if(clicked.length === 0) {
+        let best = null, bestD = Infinity;
+        data.forEach(p => {
+            const d = Math.hypot(p.sx - x, p.sy - y) - (p.pr || p.r);
+            if(d < bestD) { bestD = d; best = p; }
+        });
+        const tol = Math.max(8, (best ? (best.pr || best.r) : 0) * 0.8);
+        if(best && bestD <= tol) {
+            clicked = data.filter(p => Math.hypot(p.sx - best.sx, p.sy - best.sy) <= Math.max(p.pr || p.r, 4) + 1);
+        }
+    }
+
+    if(clicked.length === 0) return;
+    clicked.sort((a,b) => b.depth - a.depth);   // 由前到后 (depth 大 = 离观察者近)
+
+    // 3. 同一位置的重复副本 (边界补全产生的完全相同原子) 去重
+    const seen = new Set();
+    const uniq = clicked.filter(p => {
+        const d = p.mesh.userData;
+        const k = d.atom + '@' + d.frac.map(v=>v.toFixed(3)).join(',');
+        if(seen.has(k)) return false;
+        seen.add(k);
+        return true;
+    });
+
+    if(uniq.length === 1) { showAtomInfo(uniq[0].mesh); return; }
+
+    // 4. 重叠: 询问"选择查看哪个原子"
+    let html = `<div class="ip-note">该投影位置上有 ${uniq.length} 个原子重叠 (列表按由前到后排列)。请选择要查看哪一个:</div>`;
+    html += uniq.map((p, i) => {
+        const d = p.mesh.userData;
+        const col = cssColor(state.atoms[d.atom] && state.atoms[d.atom].color, '#cccccc');
+        return `<div class="pick-item" data-pickproj="${i}">
+            <span class="pick-dot" style="background:${col}"></span>
+            <span class="pick-name" style="color:var(--primary-color);">${d.atom}</span>
+            <span class="pick-coord">(${d.frac.map(formatCoord).join(', ')})</span>
+            <span class="pick-depth">${i === 0 ? '最前' : '第 ' + (i + 1) + ' 层'}</span>
+        </div>`;
+    }).join('');
+    const body = _openModal('选择查看哪个原子', html, [{ text: '取消' }]);
+    body.querySelectorAll('[data-pickproj]').forEach(el => {
+        el.onclick = () => {
+            const idx = parseInt(el.dataset.pickproj, 10);
+            closeModal();
+            showAtomInfo(uniq[idx].mesh);
+        };
+    });
+}
+
+function updateUI() {
+    renderActiveAtoms();
+    updatePositionList();
+}
+
+</script>
+</body>
+</html>
