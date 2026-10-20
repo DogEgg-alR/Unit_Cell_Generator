@@ -43,11 +43,29 @@
 ## 快速开始
 
 1. 双击 `index.html`（推荐 Chrome / Edge / Firefox 新版）。
-2. 页面需联网加载 three.js r128（CDN），首次打开请保持网络可用。
+2. **单文件**：three.js r128 与 OrbitControls 已内嵌进 `index.html`，不依赖任何 CDN、不依赖其它文件，离线双击即可运行。
 3. 打开后默认是「简单立方」，3D 与投影图已生成；直接拖动即可旋转。
 4. 上方的「晶胞类型」换一个，例如**氯化钠**、**金刚石**、**石墨**，3D 图立即重建。
 
-**离线使用**：把 `three.min.js`、`OrbitControls.js` 下载到与本文件同目录，再把 `index.html` 里两个 `<script src="...">` 改成对应的本地文件名即可。
+> 完整文件约 **730 KB**。如果打开后只弹出「3D 显示库没有加载成功」，说明文件不完整（被截断或只下载了几十 KB），重新下载完整版即可。
+
+### 部署到 GitHub Pages
+
+只需要一个文件：
+
+```
+Unit_Cell_Generator/
+├─ index.html        # 约 730 KB，已内置 three.js，自带全部功能
+└─ README.md
+```
+
+步骤：
+
+1. 仓库 → `Add file → Upload files`，把 `index.html` 拖进去 → `Commit changes`（或用 `git add index.html && git commit -m "..." && git push`）。
+2. 确认 `Settings → Pages` 的 Source 指向 `main` 分支的 `/ (root)`。
+3. 等 1–2 分钟，访问 `https://<用户名>.github.io/Unit_Cell_Generator/`，并按 **Ctrl+F5** 强制刷新，排除旧缓存。
+
+> 旧版本里 `index.html` 从 cdnjs / jsdelivr 加载 three.js。国内网络访问这两个 CDN 会被拦（浏览器报 `blocked by CORS policy`、`ERR_FAILED`），随后 `THREE.OrbitControls is not a constructor`，页面就只剩左栏。内置后彻底没有这个依赖，也不需要再传 `libs/` 文件夹。
 
 ---
 
@@ -241,15 +259,15 @@
 
 ### 依赖
 
-- [three.js](https://threejs.org/) **r128**（`three.min.js`）与 `OrbitControls`，通过 CDN 引入。
-- 无框架、无构建步骤、无后端；所有逻辑在一个 `index.html` 内（约 2 700 行）。
+- [three.js](https://threejs.org/) **r128** 与其 `OrbitControls`，**已内嵌**在 `index.html` 开头（约 630 KB 压缩源码），运行时没有任何外部请求。
+- 无框架、无构建步骤、无后端、无网络依赖；整个应用就是一个 `index.html`（约 3 700 行 / 730 KB）。
 
 ### 文件结构
 
 ```
 Unit_Cell_Generator/
-├─ index.html    # 全部功能：样式 + 结构 + 脚本
-└─ readme.md     # 本文档
+├─ index.html            # 唯一必需文件：内嵌 three.js + 样式 + 结构 + 应用脚本
+└─ README.md             # 本文档
 ```
 
 ### 主要模块
@@ -289,6 +307,12 @@ Chrome / Edge / Firefox / Safari 近三年版本；需要 WebGL 与 Canvas 2D。
 ---
 
 ## 更新记录
+
+### v1.5
+- three.js r128 与 OrbitControls **直接内嵌**进 `index.html`，彻底去掉外部依赖：离线双击可用、GitHub Pages 不再受 cdnjs / jsdelivr 影响。
+- 页面只有单个文件（约 730 KB），部署时只需上传 `index.html`。
+- 3D 库异常时弹出明确提示（说明文件不完整 + 强制刷新），而不是留一块空白。
+- 「对角面」下拉框只在「对角面」视角可用，其余视角灰显；视角徽章文案改为沿 x / y / z 轴。
 
 ### v1.4
 - 对角面补齐为 6 种，可在下拉框切换，3D 投影面与投影图同步。
