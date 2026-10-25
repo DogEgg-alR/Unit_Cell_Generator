@@ -1466,7 +1466,7 @@
                 <div class="toggle-row">
                     <span class="toggle-label">3D视图 - 空间填充</span>
                     <label class="switch">
-                        <input type="checkbox" id="toggle3dFill" checked>
+                        <input type="checkbox" id="toggle3dFill">
                         <span class="slider"></span>
                     </label>
                 </div>
@@ -1474,7 +1474,7 @@
                 <div class="toggle-row" style="border-bottom: none; margin-bottom: 0;">
                     <span class="toggle-label">投影图 - 空间填充</span>
                     <label class="switch">
-                        <input type="checkbox" id="toggleProjFill" checked>
+                        <input type="checkbox" id="toggleProjFill">
                         <span class="slider"></span>
                     </label>
                 </div>
@@ -1651,8 +1651,8 @@ const state = {
     params: { a: 'a', b: 'b', c: 'c', alpha: 90, beta: 90, gamma: 90 },
     selectedAtomForAdd: null,
     interactionMode: 'view',
-    is3dSpaceFilling: true,
-    isProjSpaceFilling: true,
+    is3dSpaceFilling: false,
+    isProjSpaceFilling: false,
     showProjOutside: true,
     showProjectionPlane: true,
     projView: 'top',
